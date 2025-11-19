@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>WonkyTracks Prototype</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #cceeff;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
+    canvas {
+      display: block;
+      margin: auto;
+      background-color: #fff;
+      cursor: pointer;
+    }
+    #menu {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: white;
+      padding: 8px 12px;
+      border-radius: 12px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.25);
+      font-size: 14px;
+      z-index: 10;
+    }
+    #menu button {
+      margin: 2px 0;
+      width: 120px;
+      cursor: pointer;
+    }
+    #hud {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: white;
+      padding: 6px 10px;
+      border-radius: 12px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.25);
+      font-size: 14px;
+      z-index: 10;
+    }
+    #winBanner {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      padding: 20px 40px;
+      background: #ffec5c;
+      border: 4px solid #000;
+      border-radius: 20px;
+      font-size: 28px;
+      font-weight: bold;
+      display: none;
+      z-index: 20;
+    }
+  </style>
+</head>
+<body>
+<div id="menu">
+  <div><strong>WonkyTracks</strong></div>
+  <button onclick="startGame('1P')">1 Player</button><br>
+  <button onclick="startGame('2P')">2 Player</button><br>
+  <button onclick="startGame('CPU')">Vs Computer</button>
+</div>
+<div id="hud">
+  <div id="turnLabel">Mode: -</div>
+  <div id="diceLabel">Moves: -</div>
+</div>
+<div id="winBanner"></div>
+<canvas id="gameCanvas" width="360" height="640"></canvas>
+
+<!-- Script moved to the bottom of the body so startGame is defined before buttons are used -->
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const turnLabel = document.getElementById("turnLabel");
+const diceLabel = document.getElementById("diceLabel");
+const winBanner = document.getElementById("winBanner");
+
+// Tile constants
+const TILE_LAND = 0;
+const TILE_OBSTACLE = 1;
+const TILE_RESOURCE = 2;
+const TILE_BASE_P1 = 3;
+const TILE_BASE_P2 = 4;
+
+const tileSize = 40;
+const cols = 9;
+const rows = 16;
+
+let map = [];
+let tracks = []; // {x,y,owner}
+let players = [];
+let moveHistory = []; // log of moves for future replay/debug
+let currentPlayerIndex = 0;
+let diceRoll = 0;
+let highlights = []; // {x,y,cost,isScoot}
+let gameMode = null;
+let gameOver = false;
+let isAnimating = false; // prevent input during scoot animation
+
+function buildMap() {
+  map = [];
+  for (let y = 0; y < rows; y++) {
+    const row = [];
+    for (let x = 0; x < cols; x++) {
+      let val = TILE_LAND;
+      // Obstacles
+      if ((y === 5 && x === 4) || (y === 8 && x === 4)) val = TILE_OBSTACLE;
+      // Resources, symmetrical
+      if ((y === 4 || y === 10) && x === 4) val = TILE_RESOURCE;
+      // Bases
+      if (y === 14 && x === 1) val = TILE_BASE_P1;
+      if (y === 14 && x === 7) val = TILE_BASE_P2;
+      row.push(val);
+    }
+    map.push(row);
+  }
+}
+
+function createPlayers() {
+  players = [
+    { id: 1, x: 1, y: 14, color: "#ff00aa", hasResource: false, delivered: 0 },
+    { id: 2, x: 7, y: 14, color: "#00aaff", hasResource: false, delivered: 0 }
+  ];
+  currentPlayerIndex = 0;
+}
+
+function trackAt(x, y) {
+  return tracks.find(t => t.x === x && t.y === y) || null;
+}
+
+function getTile(x, y) {
+  if (y < 0 || y >= rows || x < 0 || x >= cols) return TILE_OBSTACLE;
+  return map[y][x];
+}
+
+function canEnterTile(player, x, y) {
+  const tile = getTile(x, y);
+  if (tile === TILE_OBSTACLE) return false;
+  const tr = trackAt(x, y);
+  if (tr && tr.owner !== player.id) return false; // enemy track blocks
+  return true;
+}
+
+function movementCost(player, fromX, fromY, toX, toY) {
+  const dx = Math.abs(toX - fromX);
+  const dy = Math.abs(toY - fromY);
+  if (dx + dy !== 1) return Infinity; // orthogonal only
+  const fromTrObj = trackAt(fromX, fromY);
+  const toTrObj = trackAt(toX, toY);
+  const fromTrack = !!fromTrObj && fromTrObj.owner === player.id;
+  const toTrack = !!toTrObj && toTrObj.owner === player.id;
+  // Entering or traveling along your own track is free, exiting to non-track costs 1
+  if (!fromTrack && toTrack) return 0; // onto track
+  if (fromTrack && toTrack) return 0;  // along track
+  if (fromTrack && !toTrack) return 1; // leaving track
+  // Neither side is track: normal move
+  return 1;
+}
+
+function drawTile(x, y, type) {
+  switch (type) {
+    case TILE_LAND: ctx.fillStyle = "#aadd88"; break;
+    case TILE_OBSTACLE: ctx.fillStyle = "#555555"; break;
+    case TILE_RESOURCE: ctx.fillStyle = "#ffcc33"; break;
+    case TILE_BASE_P1: ctx.fillStyle = "#ff99dd"; break;
+    case TILE_BASE_P2: ctx.fillStyle = "#99ddff"; break;
+  }
+  ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+  ctx.strokeStyle = "#222";
+  ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
+}
+
+function drawTracks() {
+  for (const t of tracks) {
+    const owner = players.find(p => p.id === t.owner);
+    const baseColor = owner ? owner.color : "#666666";
+
+    const cx = t.x * tileSize + tileSize / 2;
+    const cy = t.y * tileSize + tileSize / 2;
+    const w = tileSize - 12;
+    const h = 12;
+    const r = h / 2;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.fillStyle = baseColor;
+
+    // rounded magnet-like bar
+    ctx.beginPath();
+    ctx.moveTo(-w / 2 + r, -h / 2);
+    ctx.lineTo(w / 2 - r, -h / 2);
+    ctx.quadraticCurveTo(w / 2, -h / 2, w / 2, 0);
+    ctx.quadraticCurveTo(w / 2, h / 2, w / 2 - r, h / 2);
+    ctx.lineTo(-w / 2 + r, h / 2);
+    ctx.quadraticCurveTo(-w / 2, h / 2, -w / 2, 0);
+    ctx.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2);
+    ctx.closePath();
+    ctx.fill();
+
+    // inner shiny stripe
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.fillRect(-w / 2 + 3, -2, w - 6, 4);
+
+    ctx.restore();
+  }
+}
+
+function drawHighlights() {
+  ctx.save();
+  ctx.fillStyle = "rgba(255, 255, 0, 0.35)";
+  for (const h of highlights) {
+    ctx.fillRect(h.x * tileSize, h.y * tileSize, tileSize, tileSize);
+  }
+  ctx.restore();
+}
+
+function drawPlayers() {
+  for (const p of players) {
+    const shakeX = p.shakeX || 0;
+    const shakeY = p.shakeY || 0;
+    const squash = p.squash || 1;
+
+    const cx = p.x * tileSize + tileSize / 2;
+    const cy = p.y * tileSize + tileSize / 2;
+
+    ctx.save();
+    ctx.translate(cx + shakeX, cy + shakeY);
+    ctx.scale(1.05, squash); // tiny squash/stretch for wonky vibe
+
+    // --- Little WonkyTruck sprite (dump-truck-ish) ---
+    const bodyW = tileSize * 0.5;
+    const bodyH = tileSize * 0.25;
+    const cabW  = tileSize * 0.25;
+    const cabH  = tileSize * 0.22;
+
+    // truck body (bed)
+    ctx.fillStyle = p.color;
+    ctx.fillRect(-bodyW * 0.6, -bodyH, bodyW, bodyH);
+
+    // cab
+    ctx.fillRect(bodyW * 0.1, -cabH - 2, cabW, cabH);
+
+    // window
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(bodyW * 0.15, -cabH, cabW * 0.6, cabH * 0.5);
+
+    // wheels
+    ctx.fillStyle = "#333333";
+    const wheelY = bodyH * 0.2;
+    ctx.beginPath();
+    ctx.arc(-bodyW * 0.3, wheelY, tileSize * 0.12, 0, Math.PI * 2);
+    ctx.arc(bodyW * 0.2, wheelY, tileSize * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+
+    // resource load icon in the bed
+    if (p.hasResource) {
+      ctx.fillStyle = "#ffcc33";
+      ctx.beginPath();
+      ctx.arc(-bodyW * 0.1, -bodyH - 4, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Dust cloud if just loaded
+    if (p.dustTimer && p.dustTimer > 0) {
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = "#ffffff";
+      for (let i = 0; i < 5; i++) {
+        const dx = (Math.random() - 0.5) * 10 - 10;
+        const dy = (Math.random() - 0.5) * 6 + 10;
+        ctx.beginPath();
+        ctx.arc(dx, dy, 3 + Math.random() * 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      p.dustTimer--;
+    }
+
+    ctx.restore();
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      drawTile(x, y, map[y][x]);
+    }
+  }
+  drawHighlights();
+  drawTracks();
+  drawPlayers();
+}
+
+function rollDice() {
+  diceRoll = Math.floor(Math.random() * 6) + 1;
+  diceLabel.textContent = "Moves: " + diceRoll;
+}
+
+function updateTurnLabel() {
+  const p = players[currentPlayerIndex];
+  turnLabel.textContent = "Player " + p.id + "'s turn";
+}
+
+function computeHighlights() {
+  highlights = [];
+  if (gameOver || diceRoll <= 0) return;
+
+  const p = players[currentPlayerIndex];
+  const dirs = [
+    { dx: 1, dy: 0 },
+    { dx: -1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: 0, dy: -1 }
+  ];
+
+  const addHighlight = (x, y, cost, isScoot) => {
+    if (cost > diceRoll) return;
+    if (!canEnterTile(p, x, y)) return;
+    if (highlights.some(h => h.x === x && h.y === y)) return;
+    highlights.push({ x, y, cost, isScoot });
+  };
+
+  // 1) Immediate orthogonal neighbors from the truck (normal or simple track moves)
+  for (const d of dirs) {
+    const nx = p.x + d.dx;
+    const ny = p.y + d.dy;
+    if (!canEnterTile(p, nx, ny)) continue;
+    const cost = movementCost(p, p.x, p.y, nx, ny);
+    if (cost <= diceRoll) {
+      addHighlight(nx, ny, cost, false);
+    }
+  }
+
+  // 2) Scoot network: from any own-track tile connected to the truck,
+  // highlight all non-track tiles adjacent to that network as cost 1 exits.
+  const isOwnTrack = (x, y) => {
+    const tr = trackAt(x, y);
+    return !!tr && tr.owner === p.id;
+  };
+
+  const visitedSet = new Set();
+  const trackTiles = [];
+  const queue = [];
+
+  const tryAddStart = (x, y) => {
+    if (!isOwnTrack(x, y)) return;
+    const key = `${x},${y}`;
+    if (visitedSet.has(key)) return;
+    visitedSet.add(key);
+    trackTiles.push({ x, y });
+    queue.push({ x, y });
+  };
+
+  // If we're standing on a track, include that, plus any adjacent own tracks.
+  tryAddStart(p.x, p.y);
+  for (const d of dirs) {
+    tryAddStart(p.x + d.dx, p.y + d.dy);
+  }
+
+  // BFS over connected own-track network
+  while (queue.length) {
+    const { x, y } = queue.shift();
+    for (const d of dirs) {
+      const nx = x + d.dx;
+      const ny = y + d.dy;
+      if (!isOwnTrack(nx, ny)) continue;
+      const key = `${nx},${ny}`;
+      if (visitedSet.has(key)) continue;
+      visitedSet.add(key);
+      trackTiles.push({ x: nx, y: ny });
+      queue.push({ x: nx, y: ny });
+    }
+  }
+
+  // For every track tile in the connected component, any adjacent non-track
+  // tile that can be entered is a scoot-exit with cost 1.
+  for (const t of trackTiles) {
+    for (const d of dirs) {
+      const nx = t.x + d.dx;
+      const ny = t.y + d.dy;
+      if (isOwnTrack(nx, ny)) continue; // still track, not an exit
+      addHighlight(nx, ny, 1, true);
+    }
+  }
+}
+
+function findScootPath(player, targetX, targetY) {
+  const dirs = [
+    { dx: 1, dy: 0 },
+    { dx: -1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: 0, dy: -1 }
+  ];
+
+  const isOwnTrack = (x, y) => {
+    const tr = trackAt(x, y);
+    return !!tr && tr.owner === player.id;
+  };
+
+  // Gather starting track tiles: the track under the truck (if any)
+  // plus any adjacent own-track tiles.
+  const starts = [];
+  const seenStart = new Set();
+
+  const addStart = (x, y) => {
+    if (!isOwnTrack(x, y)) return;
+    const key = `${x},${y}`;
+    if (seenStart.has(key)) return;
+    seenStart.add(key);
+    starts.push({ x, y });
+  };
+
+  if (isOwnTrack(player.x, player.y)) {
+    addStart(player.x, player.y);
+  }
+  for (const d of dirs) {
+    addStart(player.x + d.dx, player.y + d.dy);
+  }
+
+  if (starts.length === 0) {
+    return null; // no track network to scoot on
+  }
+
+  // BFS over the player's own track network
+  const queue = [];
+  const visited = new Set();
+  const parent = {}; // parent[childKey] = parentKey
+
+  for (const s of starts) {
+    const key = `${s.x},${s.y}`;
+    queue.push(s);
+    visited.add(key);
+    parent[key] = null;
+  }
+
+  let exitNode = null;
+
+  while (queue.length) {
+    const { x, y } = queue.shift();
+
+    // If this track tile is adjacent to the target, we've found our exit point.
+    if (Math.abs(x - targetX) + Math.abs(y - targetY) === 1) {
+      exitNode = { x, y };
+      break;
+    }
+
+    // Expand neighbors along own track
+    for (const d of dirs) {
+      const nx = x + d.dx;
+      const ny = y + d.dy;
+      if (!isOwnTrack(nx, ny)) continue;
+      const key = `${nx},${ny}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      parent[key] = `${x},${y}`;
+      queue.push({ x: nx, y: ny });
+    }
+  }
+
+  if (!exitNode) {
+    return null; // no path through tracks to a tile adjacent to target
+  }
+
+  // Reconstruct track path from one of the start track tiles to exitNode
+  const trackPath = [];
+  let key = `${exitNode.x},${exitNode.y}`;
+  while (key) {
+    const [sx, sy] = key.split(",").map(Number);
+    trackPath.push({ x: sx, y: sy });
+    key = parent[key];
+  }
+  trackPath.reverse();
+
+  // Build full path including:
+  // - starting at the player's current position (if it's not already the first track tile)
+  // - walking along the track path
+  // - stepping off the track to the target tile.
+  const fullPath = [];
+
+  const firstTrack = trackPath[0];
+  if (firstTrack.x !== player.x || firstTrack.y !== player.y) {
+    fullPath.push({ x: player.x, y: player.y });
+  }
+
+  for (const node of trackPath) {
+    fullPath.push({ x: node.x, y: node.y });
+  }
+
+  fullPath.push({ x: targetX, y: targetY });
+
+  return fullPath;
+}
+
+function layTrackAt(x, y, ownerId) {
+  const tile = getTile(x, y);
+  if (tile === TILE_RESOURCE || tile === TILE_OBSTACLE) return;
+  if (trackAt(x, y)) return;
+  tracks.push({ x, y, owner: ownerId });
+}
+
+function checkWin(p) {
+  // For now: first to deliver 1 resource wins
+  if (p.delivered >= 1) {
+    gameOver = true;
+    winBanner.textContent = "Player " + p.id + " WINS!";
+    winBanner.style.display = "block";
+  }
+}
+
+function handleResourceAndBase(p) {
+  const tile = getTile(p.x, p.y);
+  if (tile === TILE_RESOURCE && !p.hasResource) {
+    p.hasResource = true;
+    p.dustTimer = 10; // trigger little dust puff animation
+  }
+  if (p.hasResource) {
+    if ((tile === TILE_BASE_P1 && p.id === 1) || (tile === TILE_BASE_P2 && p.id === 2)) {
+      p.hasResource = false;
+      p.delivered += 1;
+      checkWin(p);
+    }
+  }
+}
+
+function endTurn() {
+  const p = players[currentPlayerIndex];
+  layTrackAt(p.x, p.y, p.id);
+  if (gameOver) {
+    computeHighlights();
+    draw();
+    return;
+  }
+  // Switch player
+  currentPlayerIndex = (currentPlayerIndex + 1) % 2;
+
+  rollDice();
+  updateTurnLabel();
+  computeHighlights();
+  draw();
+
+  if (gameMode === "CPU" && players[currentPlayerIndex].id === 2 && !gameOver) {
+    runCpuTurn();
+  }
+}
+
+function logMove(p, fromX, fromY, toX, toY, isScoot, diceBefore, diceAfter) {
+  moveHistory.push({
+    playerId: p.id,
+    fromX,
+    fromY,
+    toX,
+    toY,
+    isScoot: !!isScoot,
+    diceBefore,
+    diceAfter
+  });
+}
+
+function handleMoveClick(x, y) {
+  if (gameOver || !gameMode) return;
+  if (isAnimating) return;
+
+  const p = players[currentPlayerIndex];
+  const h = highlights.find(hh => hh.x === x && hh.y === y);
+  if (!h) return;
+  if (h.cost > diceRoll) return;
+
+  const fromX = p.x;
+  const fromY = p.y;
+  const diceBefore = diceRoll;
+
+  // Scoot animation: animate along implied track path instead of jumping
+  if (h.isScoot) {
+    const path = findScootPath(p, h.x, h.y);
+    if (!path || path.length < 2) {
+      // Fallback: just move normally if no path found
+      p.x = h.x;
+      p.y = h.y;
+      diceRoll -= h.cost;
+      diceLabel.textContent = "Moves: " + diceRoll;
+      handleResourceAndBase(p);
+      logMove(p, fromX, fromY, h.x, h.y, true, diceBefore, diceRoll);
+      if (diceRoll <= 0) {
+        endTurn();
+      } else {
+        computeHighlights();
+        draw();
+      }
+      return;
+    }
+    isAnimating = true;
+
+    let idx = 1; // start from second point; first is current position
+    const animateStep = () => {
+      const step = path[idx];
+
+      // wonky screen shake / squash
+      p.shakeX = (Math.random() - 0.5) * 4;
+      p.shakeY = (Math.random() - 0.5) * 2;
+      p.squash = 0.9 + Math.random() * 0.2;
+
+      p.x = step.x;
+      p.y = step.y;
+      draw();
+      idx++;
+      if (idx < path.length) {
+        setTimeout(animateStep, 80); // chug-chug
+      } else {
+        // Done animating: reset squash/offset
+        p.shakeX = 0;
+        p.shakeY = 0;
+        p.squash = 1;
+
+        diceRoll -= h.cost;
+        diceLabel.textContent = "Moves: " + diceRoll;
+        handleResourceAndBase(p);
+        logMove(p, fromX, fromY, h.x, h.y, true, diceBefore, diceRoll);
+        isAnimating = false;
+        if (diceRoll <= 0) {
+          endTurn();
+        } else {
+          computeHighlights();
+          draw();
+        }
+      }
+    };
+    animateStep();
+    return;
+  }
+
+  // Normal non-scoot move
+  p.x = h.x;
+  p.y = h.y;
+  diceRoll -= h.cost;
+  diceLabel.textContent = "Moves: " + diceRoll;
+
+  handleResourceAndBase(p);
+  logMove(p, fromX, fromY, h.x, h.y, false, diceBefore, diceRoll);
+
+  if (diceRoll <= 0) {
+    endTurn();
+  } else {
+    computeHighlights();
+    draw();
+  }
+}
+
+canvas.addEventListener("click", (e) => {
+  if (isAnimating) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - rect.left) / tileSize);
+  const y = Math.floor((e.clientY - rect.top) / tileSize);
+  handleMoveClick(x, y);
+});
+
+// Simple CPU that clicks random highlights until dice used
+function runCpuTurn() {
+  if (gameOver || gameMode !== "CPU") return;
+
+  const step = () => {
+    if (gameOver || gameMode !== "CPU") return;
+    const p = players[currentPlayerIndex];
+    if (p.id !== 2) return;
+
+    if (diceRoll <= 0) {
+      endTurn();
+      return;
+    }
+
+    computeHighlights();
+    if (highlights.length === 0) {
+      diceRoll = 0;
+      endTurn();
+      return;
+    }
+
+    const choice = highlights[Math.floor(Math.random() * highlights.length)];
+    handleMoveClick(choice.x, choice.y);
+
+    if (!gameOver && gameMode === "CPU" && players[currentPlayerIndex].id === 2 && diceRoll > 0) {
+      setTimeout(step, isAnimating ? 250 : 150);
+    }
+  };
+
+  setTimeout(step, 300);
+}
+
+function resetGameState() {
+  buildMap();
+  createPlayers();
+  tracks = [];
+  moveHistory = [];
+  gameOver = false;
+  isAnimating = false;
+  winBanner.style.display = "none";
+  winBanner.textContent = "";
+}
+
+function startGame(mode) {
+  gameMode = mode;
+  resetGameState();
+  rollDice();
+  updateTurnLabel();
+  computeHighlights();
+  draw();
+}
+
+// Initial draw before game start
+buildMap();
+createPlayers();
+draw();
+
+</script>
+</body>
+</html>
