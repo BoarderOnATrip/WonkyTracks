@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>WonkyTracks Prototype</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #cceeff;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
+    canvas {
+      display: block;
+      margin: auto;
+      background-color: #fff;
+      cursor: pointer;
+    }
+    #menu {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: white;
+      padding: 8px 12px;
+      border-radius: 12px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.25);
+      font-size: 14px;
+      z-index: 10;
+    }
+    #menu button {
+      margin: 2px 0;
+      width: 140px;
+      cursor: pointer;
+    }
+    #hud {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: white;
+      padding: 6px 10px;
+      border-radius: 12px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.25);
+      font-size: 14px;
+      z-index: 10;
+        
+    }
+    .silo-block {
+      margin-top: 6px;
+      padding: 6px 8px;
+      border: 1px solid #dcdcdc;
+      border-radius: 10px;
+      background: #f7f9fb;
+    }
+    .silo-title {
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+    .resource-row {
+      display: flex;
+      gap: 6px;
+    }
+    .resource-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 8px;
+      font-weight: bold;
+      color: #1b1b1b;
+      background: #ffffff;
+      border: 1px solid #e4e4e4;
+      min-width: 52px;
+      justify-content: center;
+    }
+    .resource-chip .label {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 12px;
+      line-height: 16px;
+      text-align: center;
+    }
+    .resource-chip.concrete .label { background: #888888; }
+    .resource-chip.wood .label { background: #c47a2f; }
+    .resource-chip.steel .label { background: #6f8bdc; }
+    #winBanner {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      padding: 20px 40px;
+      background: #ffec5c;
+      border: 4px solid #000;
+      border-radius: 20px;
+      font-size: 28px;
+      font-weight: bold;
+      display: none;
+      z-index: 20;
+    }
+  </style>
+</head>
+<body>
+<div id="menu">
+  <div><strong>WonkyTracks</strong></div>
+  <button onclick="startGame('2P')">2 Player Local</button><br>
+  <button onclick="startGame('CPU_EASY')">Vs CPU (Easy)</button><br>
+  <button onclick="startGame('CPU_MEDIUM')">Vs CPU (Medium)</button><br>
+  <button onclick="startGame('CPU_HARD')">Vs CPU (Hard)</button><br>
+  <button onclick="undoMove()">Undo Turn</button>
+</div>
+<div id="hud">
+    <div id="turnLabel">Mode: -</div>
+    <div id="diceLabel">Moves: -</div>
+    <div id="contractLabel"></div>
+    <div id="p1Status"></div>
+    <div id="p2Status"></div>
+    <div class="silo-block">
+      <div class="silo-title">P1 Silos</div>
+      <div class="resource-row">
+        <span class="resource-chip concrete"><span class="label">C</span><span id="p1ConcreteCount">0</span></span>
+        <span class="resource-chip wood"><span class="label">W</span><span id="p1WoodCount">0</span></span>
+        <span class="resource-chip steel"><span class="label">S</span><span id="p1SteelCount">0</span></span>
+      </div>
+    </div>
+    <div class="silo-block">
+      <div class="silo-title">P2 Silos</div>
+      <div class="resource-row">
+        <span class="resource-chip concrete"><span class="label">C</span><span id="p2ConcreteCount">0</span></span>
+        <span class="resource-chip wood"><span class="label">W</span><span id="p2WoodCount">0</span></span>
+        <span class="resource-chip steel"><span class="label">S</span><span id="p2SteelCount">0</span></span>
+      </div>
+    </div>
+    <button onclick="tryFulfillContract()">Fulfill Contract</button>
+  </div>
+
+<div id="winBanner"></div>
+<canvas id="gameCanvas" width="440" height="1040"></canvas>
+
+<!-- Game logic in a separate JS file -->
+<script src="game.js"></script>
+</body>
+</html>
