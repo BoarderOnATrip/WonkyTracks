@@ -20,6 +20,34 @@ const p2ConcreteCount = document.getElementById("p2ConcreteCount");
 const p2WoodCount = document.getElementById("p2WoodCount");
 const p2SteelCount = document.getElementById("p2SteelCount");
 
+// Keep silo chips in sync with the live stockpiles
+function updateSiloChips() {
+  if (!p1ConcreteCount || !p1WoodCount || !p1SteelCount) return;
+
+  const p1 = players[0];
+  const p2 = players[1];
+
+  if (p1) {
+    p1ConcreteCount.textContent = p1.stockpile.concrete || 0;
+    p1WoodCount.textContent = p1.stockpile.wood || 0;
+    p1SteelCount.textContent = p1.stockpile.steel || 0;
+  } else {
+    p1ConcreteCount.textContent = "0";
+    p1WoodCount.textContent = "0";
+    p1SteelCount.textContent = "0";
+  }
+
+  if (p2) {
+    p2ConcreteCount.textContent = p2.stockpile.concrete || 0;
+    p2WoodCount.textContent = p2.stockpile.wood || 0;
+    p2SteelCount.textContent = p2.stockpile.steel || 0;
+  } else {
+    p2ConcreteCount.textContent = "0";
+    p2WoodCount.textContent = "0";
+    p2SteelCount.textContent = "0";
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Game State
 // -----------------------------------------------------------------------------
@@ -357,6 +385,7 @@ function handleResourceAndBase(truck) {
     }
 
     updateHUD();
+    updateSiloChips();
     autoOfferContractIfEligible(player);
   }
 }
@@ -410,6 +439,7 @@ function fulfillCurrentContract(player) {
   currentContract = CONTRACTS[currentContractIndex];
 
   updateHUD();
+  updateSiloChips();
   checkCashWin(player);
 }
 
@@ -826,6 +856,8 @@ function draw() {
 // HUD / Turn Flow
 // -----------------------------------------------------------------------------
 function updateHUD() {
+  updateSiloChips();
+
   if (gameState === GAME_STATE.TRACK_DRAFT) {
     const p1Placed = draftTracksPlaced[1];
     const p2Placed = draftTracksPlaced[2];
@@ -858,14 +890,6 @@ function updateHUD() {
     `P1: $${p1.cash} | Tracks:${p1.trackBudget} | C:${s1.concrete} W:${s1.wood} S:${s1.steel}`;
   p2Status.textContent =
     `P2: $${p2.cash} | Tracks:${p2.trackBudget} | C:${s2.concrete} W:${s2.wood} S:${s2.steel}`;
-
-  // Update visible silo chips
-  p1ConcreteCount.textContent = s1.concrete;
-  p1WoodCount.textContent = s1.wood;
-  p1SteelCount.textContent = s1.steel;
-  p2ConcreteCount.textContent = s2.concrete;
-  p2WoodCount.textContent = s2.wood;
-  p2SteelCount.textContent = s2.steel;
 
   if (gameState === GAME_STATE.PLAY) {
     const currentPlayer = players[currentPlayerIndex];
@@ -1076,6 +1100,7 @@ function resetGameState() {
   gameState = GAME_STATE.TRACK_DRAFT;
 
   updateHUD();
+  updateSiloChips();
   draw();
 }
 
