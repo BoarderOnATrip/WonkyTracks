@@ -1,5 +1,5 @@
-// WonkyTracks: Season 0 – Full game.js
-// Track Draft + Contracts + Scoots
+// WonkyTracks: Season 0 – game.js
+// Track Draft + Scoots + Contracts
 
 // -----------------------------------------------------------------------------
 // DOM & Canvas
@@ -13,6 +13,12 @@ const contractLabel = document.getElementById("contractLabel");
 const p1Status = document.getElementById("p1Status");
 const p2Status = document.getElementById("p2Status");
 const winBanner = document.getElementById("winBanner");
+const p1ConcreteCount = document.getElementById("p1ConcreteCount");
+const p1WoodCount = document.getElementById("p1WoodCount");
+const p1SteelCount = document.getElementById("p1SteelCount");
+const p2ConcreteCount = document.getElementById("p2ConcreteCount");
+const p2WoodCount = document.getElementById("p2WoodCount");
+const p2SteelCount = document.getElementById("p2SteelCount");
 
 // -----------------------------------------------------------------------------
 // Game State
@@ -24,7 +30,7 @@ const GAME_STATE = {
 };
 
 let gameState = GAME_STATE.TRACK_DRAFT;
-let gameMode = "2P"; // placeholder, we treat everything as 2P local
+let gameMode = "2P"; // all local for now
 
 // -----------------------------------------------------------------------------
 // Board / Tiles
@@ -116,7 +122,7 @@ function getResourceTypeAt(x, y) {
 function isInCommunalArea(x, y) {
   const dx = Math.abs(x - COMMUNAL_X);
   const dy = Math.abs(y - COMMUNAL_Y);
-  // Cross + 3x3-ish mound
+  // Cross + 3x3 mound
   if (dx <= 1 && dy <= 1) return true;
   if ((dx === 0 && dy <= 2) || (dy === 0 && dx <= 2)) return true;
   return false;
@@ -188,11 +194,10 @@ function buildMap() {
   }
 
   // Stamp resource hubs
-  // Each hub: 3x3 cross (center + up/down/left/right)
   for (const hub of RESOURCE_HUBS) {
     const hx = hub.x;
     const hy = hub.y;
-    const type = hub.type; // "concrete" | "wood" | "steel"
+    const type = hub.type;
 
     const positions = [
       { x: hx,     y: hy     },
@@ -293,7 +298,7 @@ function movementCost(truck, fromX, fromY, toX, toY) {
   return 1;                            // normal
 }
 
-// Place a mid-game track on current truck tile (1 per turn)
+// Place a mid-game track on current truck tile (1 per turn, no move cost)
 function tryPlaceTrackThisTurn() {
   if (gameState !== GAME_STATE.PLAY) return;
   if (hasPlacedTrackThisTurn) return;
@@ -343,7 +348,6 @@ function handleResourceAndBase(truck) {
     truck.hasResource = false;
     truck.resourceType = null;
 
-    // Add to silo
     if (!player.stockpile[rType]) player.stockpile[rType] = 0;
     player.stockpile[rType] += 1;
 
@@ -365,21 +369,17 @@ function formatContract(contract) {
   return `Contract ${contract.id}: ${req.concrete || 0} C, ${req.wood || 0} W, ${req.steel || 0} S → $${contract.reward}`;
 }
 
-// Simple auto-offer using window.confirm (no extra HTML for now)
+// Simple auto-offer using window.confirm
 function autoOfferContractIfEligible(player) {
   if (!currentContract) return;
   const req = currentContract.require;
   const stock = player.stockpile;
 
-  // Check if eligible
   for (const key in req) {
     const need = req[key] || 0;
-    if ((stock[key] || 0) < need) {
-      return; // not enough
-    }
+    if ((stock[key] || 0) < need) return;
   }
 
-  // Only auto-offer on this player's turn
   if (players[currentPlayerIndex].id !== player.id) return;
 
   const msg = `You can fulfill ${formatContract(currentContract)}. Fulfill now?`;
@@ -394,24 +394,18 @@ function fulfillCurrentContract(player) {
   const req = currentContract.require;
   const stock = player.stockpile;
 
-  // Re-check (defensive)
   for (const key in req) {
     const need = req[key] || 0;
-    if ((stock[key] || 0) < need) {
-      return;
-    }
+    if ((stock[key] || 0) < need) return;
   }
 
-  // Deduct
   for (const key in req) {
     const need = req[key] || 0;
     stock[key] -= need;
   }
 
-  // Pay
   player.cash += currentContract.reward;
 
-  // Next contract
   currentContractIndex = (currentContractIndex + 1) % CONTRACTS.length;
   currentContract = CONTRACTS[currentContractIndex];
 
@@ -485,7 +479,6 @@ function computeHighlights() {
     queue.push({ x, y });
   };
 
-  // Start from truck tile and adjacent tiles
   tryAddStart(truck.x, truck.y);
   for (const d of dirs) {
     tryAddStart(truck.x + d.dx, truck.y + d.dy);
@@ -626,13 +619,12 @@ function drawTile(x, y, type) {
 
     if (rType === "concrete") ctx.fillStyle = "#cccccc";
     else if (rType === "wood") ctx.fillStyle = "#bb8844";
-    else ctx.fillStyle = "#99aaff"; // steel
+    else ctx.fillStyle = "#99aaff";
 
     ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
     ctx.strokeStyle = "#222";
     ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
 
-    // Letter label
     let label = "S";
     if (rType === "concrete") label = "C";
     else if (rType === "wood") label = "W";
@@ -662,7 +654,16 @@ function drawTile(x, y, type) {
 function drawTracks() {
   for (const t of tracks) {
     const owner = players.find(p => p.id === t.ownerId);
-    const baseColor = owner ? owner.color : "#666666";
+
+    // Fallback colors during draft (players not created yet)
+    let baseColor;
+    if (owner) {
+      baseColor = owner.color;
+    } else {
+      if (t.ownerId === 1) baseColor = "#ff0044";
+      else if (t.ownerId === 2) baseColor = "#0066ff";
+      else baseColor = "#666666";
+    }
 
     const cx = t.x * tileSize + tileSize / 2;
     const cy = t.y * tileSize + tileSize / 2;
@@ -790,38 +791,18 @@ function drawDiceIcon(x, y, size, value) {
 
   switch (value) {
     case 1:
-      dot(0, 0);
-      break;
+      dot(0, 0); break;
     case 2:
-      dot(-1, -1);
-      dot(1, 1);
-      break;
+      dot(-1, -1); dot(1, 1); break;
     case 3:
-      dot(-1, -1);
-      dot(0, 0);
-      dot(1, 1);
-      break;
+      dot(-1, -1); dot(0, 0); dot(1, 1); break;
     case 4:
-      dot(-1, -1);
-      dot(-1, 1);
-      dot(1, -1);
-      dot(1, 1);
-      break;
+      dot(-1, -1); dot(-1, 1); dot(1, -1); dot(1, 1); break;
     case 5:
-      dot(-1, -1);
-      dot(-1, 1);
-      dot(1, -1);
-      dot(1, 1);
-      dot(0, 0);
-      break;
+      dot(-1, -1); dot(-1, 1); dot(1, -1); dot(1, 1); dot(0, 0); break;
     case 6:
-      dot(-1, -1);
-      dot(-1, 0);
-      dot(-1, 1);
-      dot(1, -1);
-      dot(1, 0);
-      dot(1, 1);
-      break;
+      dot(-1, -1); dot(-1, 0); dot(-1, 1);
+      dot(1, -1); dot(1, 0); dot(1, 1); break;
   }
 
   ctx.restore();
@@ -846,11 +827,18 @@ function draw() {
 // -----------------------------------------------------------------------------
 function updateHUD() {
   if (gameState === GAME_STATE.TRACK_DRAFT) {
-    turnLabel.textContent = `Track Draft: Player ${draftCurrentPlayerId} place track (${draftTracksPlaced[1]}/${STARTING_DRAFT_TRACKS} & ${draftTracksPlaced[2]}/${STARTING_DRAFT_TRACKS})`;
-    diceLabel.textContent = "Moves: -";
-    contractLabel.textContent = "Draft phase – plan your network!";
-    p1Status.textContent = "";
-    p2Status.textContent = "";
+    const p1Placed = draftTracksPlaced[1];
+    const p2Placed = draftTracksPlaced[2];
+
+    turnLabel.textContent = `Track Draft – Player ${draftCurrentPlayerId}, place a track`;
+    const currentPlaced = draftTracksPlaced[draftCurrentPlayerId];
+    diceLabel.textContent = `Track ${currentPlaced + 1} of ${STARTING_DRAFT_TRACKS}`;
+    contractLabel.textContent =
+      "Tracks help you scoot faster and block opponents. Click a green tile (not Home Base or resources). Each player has 6.";
+
+    p1Status.textContent = `P1 tracks placed: ${p1Placed}/${STARTING_DRAFT_TRACKS}`;
+    p2Status.textContent = `P2 tracks placed: ${p2Placed}/${STARTING_DRAFT_TRACKS}`;
+
     return;
   }
 
@@ -870,6 +858,14 @@ function updateHUD() {
     `P1: $${p1.cash} | Tracks:${p1.trackBudget} | C:${s1.concrete} W:${s1.wood} S:${s1.steel}`;
   p2Status.textContent =
     `P2: $${p2.cash} | Tracks:${p2.trackBudget} | C:${s2.concrete} W:${s2.wood} S:${s2.steel}`;
+
+  // Update visible silo chips
+  p1ConcreteCount.textContent = s1.concrete;
+  p1WoodCount.textContent = s1.wood;
+  p1SteelCount.textContent = s1.steel;
+  p2ConcreteCount.textContent = s2.concrete;
+  p2WoodCount.textContent = s2.wood;
+  p2SteelCount.textContent = s2.steel;
 
   if (gameState === GAME_STATE.PLAY) {
     const currentPlayer = players[currentPlayerIndex];
@@ -894,15 +890,11 @@ function beginTurn() {
   updateHUD();
   computeHighlights();
   draw();
-
-  // Draw dice icon on HUD
-  // (Simple placement: top-right corner of canvas)
   drawDiceIcon(canvas.width - 50, 10, 32, originalRoll);
 }
 
 function endTurn() {
   if (gameOver) return;
-
   currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
   beginTurn();
 }
@@ -911,28 +903,19 @@ function endTurn() {
 // Input: Track Draft
 // -----------------------------------------------------------------------------
 function handleTrackDraftClick(x, y) {
-  // Bounds
   if (x < 0 || x >= cols || y < 0 || y >= rows) return;
   if (gameState !== GAME_STATE.TRACK_DRAFT) return;
 
   const tile = getTile(x, y);
 
-  // Only LAND
   if (tile !== TILE_LAND) return;
-
-  // No tracks on Home Base or resources
   if (isInCommunalArea(x, y)) return;
   if (map[y][x] === TILE_RESOURCE) return;
-
-  // No overlapping tracks
   if (trackAt(x, y)) return;
 
   const ownerId = draftCurrentPlayerId;
-
-  // Check remaining draft tracks
   if (draftTracksPlaced[ownerId] >= STARTING_DRAFT_TRACKS) return;
 
-  // Place track
   tracks.push({ x, y, ownerId });
   draftTracksPlaced[ownerId]++;
 
@@ -940,7 +923,6 @@ function handleTrackDraftClick(x, y) {
   const totalNeeded = STARTING_DRAFT_TRACKS * 2;
 
   if (totalPlaced >= totalNeeded) {
-    // Draft complete → switch to PLAY
     createPlayersAndTrucks();
     currentPlayerIndex = 0;
     currentTruckIndex = 0;
@@ -952,7 +934,6 @@ function handleTrackDraftClick(x, y) {
     return;
   }
 
-  // Switch draft player
   draftCurrentPlayerId = (draftCurrentPlayerId === 1) ? 2 : 1;
 
   updateHUD();
@@ -974,7 +955,6 @@ function handleMoveClick(x, y) {
   if (h.isScoot) {
     const path = findScootPath(t, h.x, h.y);
     if (!path || path.length < 2) {
-      // fallback
       t.x = h.x;
       t.y = h.y;
       diceRoll -= h.cost;
@@ -1105,7 +1085,7 @@ function startGame(mode) {
   resetGameState();
 }
 
-// Initial setup before any game started
+// Initial setup
 buildMap();
 draw();
 updateHUD();
