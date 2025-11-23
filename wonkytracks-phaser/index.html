@@ -33,6 +33,31 @@
       width: 140px;
       cursor: pointer;
     }
+    #diceBox {
+      position: absolute;
+      top: 140px;
+      left: 10px;
+      background: white;
+      padding: 6px 8px;
+      border-radius: 12px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.25);
+      text-align: center;
+      width: 90px;
+      z-index: 10;
+    }
+    #diceBox .label {
+      font-size: 12px;
+      color: #444;
+      margin-bottom: 4px;
+      display: block;
+    }
+    #diceCanvas {
+      display: block;
+      margin: 0 auto;
+      background: #f5f8fb;
+      border-radius: 10px;
+      border: 1px solid #dcdcdc;
+    }
     #hud {
       position: absolute;
       top: 10px;
@@ -56,6 +81,17 @@
       font-weight: bold;
       margin-bottom: 4px;
     }
+    .silo-title .truck-chip {
+      display: inline-block;
+      width: 18px;
+      height: 12px;
+      border-radius: 3px;
+      margin-left: 6px;
+      vertical-align: middle;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+    }
+    .truck-red { background: linear-gradient(135deg, #ff5575, #d4002f); }
+    .truck-blue { background: linear-gradient(135deg, #5da2ff, #0059cc); }
     .resource-row {
       display: flex;
       gap: 6px;
@@ -105,11 +141,12 @@
 <body>
 <div id="menu">
   <div><strong>WonkyTracks</strong></div>
-  <button onclick="startGame('2P')">2 Player Local</button><br>
-  <button onclick="startGame('CPU_EASY')">Vs CPU (Easy)</button><br>
-  <button onclick="startGame('CPU_MEDIUM')">Vs CPU (Medium)</button><br>
-  <button onclick="startGame('CPU_HARD')">Vs CPU (Hard)</button><br>
-  <button onclick="undoMove()">Undo Turn</button>
+  <button onclick="startGame('2P')">2 Player Hotseat</button><br>
+  <button onclick="startGame('CPU')">Vs CPU</button>
+</div>
+<div id="diceBox">
+  <span class="label">Dice Roll</span>
+  <canvas id="diceCanvas" width="70" height="70"></canvas>
 </div>
 <div id="hud">
     <div id="turnLabel">Mode: -</div>
@@ -118,7 +155,7 @@
     <div id="p1Status"></div>
     <div id="p2Status"></div>
     <div class="silo-block">
-      <div class="silo-title">P1 Silos</div>
+      <div class="silo-title">P1 Silos <span class="truck-chip truck-red"></span></div>
       <div class="resource-row">
         <span class="resource-chip concrete"><span class="label">C</span><span id="p1ConcreteCount">0</span></span>
         <span class="resource-chip wood"><span class="label">W</span><span id="p1WoodCount">0</span></span>
@@ -126,7 +163,7 @@
       </div>
     </div>
     <div class="silo-block">
-      <div class="silo-title">P2 Silos</div>
+      <div class="silo-title">P2 Silos <span class="truck-chip truck-blue"></span></div>
       <div class="resource-row">
         <span class="resource-chip concrete"><span class="label">C</span><span id="p2ConcreteCount">0</span></span>
         <span class="resource-chip wood"><span class="label">W</span><span id="p2WoodCount">0</span></span>

@@ -20,6 +20,8 @@ const p1SteelCount = document.getElementById("p1SteelCount");
 const p2ConcreteCount = document.getElementById("p2ConcreteCount");
 const p2WoodCount = document.getElementById("p2WoodCount");
 const p2SteelCount = document.getElementById("p2SteelCount");
+const diceCanvas = document.getElementById("diceCanvas");
+const diceCtx = diceCanvas ? diceCanvas.getContext("2d") : null;
 
 // ---------------------------------------------------------------------------
 // HUD Helpers
@@ -476,8 +478,10 @@ function checkCashWin(player) {
   if (player.cash >= WIN_CASH) {
     gameOver = true;
     gameState = GAME_STATE.GAME_OVER;
+    highlights = [];
     winBanner.textContent = `Player ${player.id} wins $${WIN_CASH}!`;
     winBanner.style.display = "block";
+    draw();
   }
 }
 
@@ -854,17 +858,7 @@ function drawTrackDraftOverlay() {
   const centerY = COMMUNAL_Y * tileSize + tileSize / 2;
 
   ctx.save();
-  ctx.textAlign = "center";
-  ctx.textBaseline = "bottom";
-  ctx.font = "bold 28px sans-serif";
-  ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.fillText("Place your tracks", centerX + 2, centerY - tileSize * 1.6 + 2);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText("Place your tracks", centerX, centerY - tileSize * 1.6);
-  ctx.restore();
-
-  ctx.save();
-  ctx.translate(centerX, centerY - tileSize * 0.2);
+  ctx.translate(centerX, centerY);
   const ownerId = draftCurrentPlayerId;
   let sprite = null;
   if (assetsLoaded) {
@@ -873,13 +867,26 @@ function drawTrackDraftOverlay() {
   if (sprite && sprite.complete && sprite.width > 0) {
     const w = sprite.width;
     const h = sprite.height;
-    const scale = (tileSize * 2.4) / h;
+    const scale = (tileSize * 3.2) / h; // bigger than standard truck
     ctx.globalAlpha = 0.96;
     ctx.drawImage(sprite, -(w * scale) / 2, -(h * scale) / 2, w * scale, h * scale);
   } else {
     ctx.fillStyle = ownerId === 1 ? "#ff0044" : "#0066ff";
-    ctx.fillRect(-tileSize, -tileSize / 2, tileSize * 2, tileSize);
+    ctx.fillRect(-tileSize * 1.5, -tileSize * 0.75, tileSize * 3, tileSize * 1.5);
   }
+  ctx.restore();
+
+  // Instruction text contained near Home Base center without covering tiles
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "bold 18px sans-serif";
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "rgba(0,0,0,0.45)";
+  ctx.lineWidth = 3;
+  const labelY = COMMUNAL_Y * tileSize - tileSize * 0.2;
+  ctx.strokeText("Place your tracks", centerX, labelY);
+  ctx.fillText("Place your tracks", centerX, labelY);
   ctx.restore();
 }
 
@@ -996,6 +1003,7 @@ function beginTurn() {
   hasPlacedTrackThisTurn = false;
   currentTruckIndex = currentPlayerIndex;
   updateHUD();
+  drawDiceVisual(diceRoll);
   computeHighlights();
   draw();
 
@@ -1164,6 +1172,17 @@ function chooseCpuMove() {
   let best = highlights[0];
   let bestScore = -Infinity;
 
+  // Contract-driven priorities
+  const contract = currentContract;
+  const cpuPlayer = players[currentPlayerIndex];
+  const deficits = { concrete: 0, wood: 0, steel: 0 };
+  if (contract && cpuPlayer) {
+    const req = contract.require;
+    deficits.concrete = Math.max((req.concrete || 0) - (cpuPlayer.stockpile.concrete || 0), 0);
+    deficits.wood = Math.max((req.wood || 0) - (cpuPlayer.stockpile.wood || 0), 0);
+    deficits.steel = Math.max((req.steel || 0) - (cpuPlayer.stockpile.steel || 0), 0);
+  }
+
   // Precompute goals
   const resourceTiles = [];
   for (let y = 0; y < rows; y++) {
@@ -1190,6 +1209,13 @@ function chooseCpuMove() {
     if (tile === TILE_COMMUNAL_BASE && cpuTruck.hasResource) score += 100;
 
     if (!cpuTruck.hasResource) {
+      // Prefer resources that satisfy biggest deficit
+      const rType = getResourceTypeAt(h.x, h.y);
+      if (tile === TILE_RESOURCE && rType) {
+        const needWeight = deficits[rType] > 0 ? 50 * deficits[rType] : 8;
+        score += needWeight;
+      }
+
       // move toward any resource
       let bestDist = Infinity;
       for (const r of resourceTiles) {
@@ -1319,11 +1345,13 @@ function resetGameState() {
   draftCurrentPlayerId = 1;
   players = [];
   trucks = [];
+  highlights = [];
   currentContractIndex = 0;
   currentContract = CONTRACTS[currentContractIndex];
   gameState = GAME_STATE.TRACK_DRAFT;
   updateHUD();
   updateSiloChips();
+  drawDiceVisual(0);
   draw();
 }
 
@@ -1338,7 +1366,43 @@ buildMap();
 gameState = GAME_STATE.PREVIEW;
 updateHUD();
 draw();
+drawDiceVisual(0);
 
 // expose
 window.startGame = startGame;
 window.tryFulfillContract = tryFulfillContract;
+// Small dice visual (separate canvas)
+function drawDiceVisual(value) {
+  if (!diceCtx) return;
+  diceCtx.clearRect(0, 0, diceCanvas.width, diceCanvas.height);
+  diceCtx.fillStyle = "#ffffff";
+  diceCtx.strokeStyle = "#d0d0d0";
+  diceCtx.lineWidth = 2;
+  diceCtx.fillRect(8, 8, diceCanvas.width - 16, diceCanvas.height - 16);
+  diceCtx.strokeRect(8, 8, diceCanvas.width - 16, diceCanvas.height - 16);
+
+  const cx = diceCanvas.width / 2;
+  const cy = diceCanvas.height / 2;
+  const offset = 14;
+
+  const dot = (dx, dy) => {
+    diceCtx.beginPath();
+    diceCtx.arc(cx + dx, cy + dy, 5, 0, Math.PI * 2);
+    diceCtx.fillStyle = "#222";
+    diceCtx.fill();
+  };
+
+  switch (value) {
+    case 1: dot(0, 0); break;
+    case 2: dot(-offset, -offset); dot(offset, offset); break;
+    case 3: dot(-offset, -offset); dot(0, 0); dot(offset, offset); break;
+    case 4: dot(-offset, -offset); dot(-offset, offset); dot(offset, -offset); dot(offset, offset); break;
+    case 5: dot(-offset, -offset); dot(-offset, offset); dot(offset, -offset); dot(offset, offset); dot(0, 0); break;
+    case 6: dot(-offset, -offset); dot(-offset, 0); dot(-offset, offset); dot(offset, -offset); dot(offset, 0); dot(offset, offset); break;
+    default:
+      // Show a dash if no roll yet
+      diceCtx.fillStyle = "#444";
+      diceCtx.fillRect(cx - 12, cy - 2, 24, 4);
+      break;
+  }
+}
