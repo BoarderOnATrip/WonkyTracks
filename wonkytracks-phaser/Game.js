@@ -1,5 +1,5 @@
 // WonkyTracks: Season 0 – game.js
-// Track Draft + Scoots + Contracts
+// Track Draft + Scoots + Contracts + Peninsula edges + sprite trucks + neon tracks + draft overlay + random resources
 
 // -----------------------------------------------------------------------------
 // DOM & Canvas
@@ -13,39 +13,35 @@ const contractLabel = document.getElementById("contractLabel");
 const p1Status = document.getElementById("p1Status");
 const p2Status = document.getElementById("p2Status");
 const winBanner = document.getElementById("winBanner");
-const p1ConcreteCount = document.getElementById("p1ConcreteCount");
-const p1WoodCount = document.getElementById("p1WoodCount");
-const p1SteelCount = document.getElementById("p1SteelCount");
-const p2ConcreteCount = document.getElementById("p2ConcreteCount");
-const p2WoodCount = document.getElementById("p2WoodCount");
-const p2SteelCount = document.getElementById("p2SteelCount");
 
-// Keep silo chips in sync with the live stockpiles
-function updateSiloChips() {
-  if (!p1ConcreteCount || !p1WoodCount || !p1SteelCount) return;
+// -----------------------------------------------------------------------------
+// Assets (truck sprites)
+// -----------------------------------------------------------------------------
+// Expecting:
+//   assets/truck_red.png   – Player 1
+//   assets/truck_blue.png  – Player 2
+const assets = {
+  truckRed: new Image(),
+  truckBlue: new Image(),
+};
+let assetsLoaded = false;
 
-  const p1 = players[0];
-  const p2 = players[1];
+function loadAssets(onReady) {
+  let toLoad = 2;
 
-  if (p1) {
-    p1ConcreteCount.textContent = p1.stockpile.concrete || 0;
-    p1WoodCount.textContent = p1.stockpile.wood || 0;
-    p1SteelCount.textContent = p1.stockpile.steel || 0;
-  } else {
-    p1ConcreteCount.textContent = "0";
-    p1WoodCount.textContent = "0";
-    p1SteelCount.textContent = "0";
+  function done() {
+    toLoad--;
+    if (toLoad === 0) {
+      assetsLoaded = true;
+      if (onReady) onReady();
+    }
   }
 
-  if (p2) {
-    p2ConcreteCount.textContent = p2.stockpile.concrete || 0;
-    p2WoodCount.textContent = p2.stockpile.wood || 0;
-    p2SteelCount.textContent = p2.stockpile.steel || 0;
-  } else {
-    p2ConcreteCount.textContent = "0";
-    p2WoodCount.textContent = "0";
-    p2SteelCount.textContent = "0";
-  }
+  assets.truckRed.onload = done;
+  assets.truckBlue.onload = done;
+
+  assets.truckRed.src = "assets/truck_red.png";
+  assets.truckBlue.src = "assets/truck_blue.png";
 }
 
 // -----------------------------------------------------------------------------
@@ -76,12 +72,8 @@ const rows = 26;
 const COMMUNAL_X = Math.floor(cols / 2);
 const COMMUNAL_Y = Math.floor(rows / 2);
 
-// Resource hubs: each 3x3 cross of a single type
-const RESOURCE_HUBS = [
-  { x: COMMUNAL_X,     y: COMMUNAL_Y - 6, type: "steel"     },
-  { x: COMMUNAL_X - 3, y: COMMUNAL_Y + 5, type: "wood"      },
-  { x: COMMUNAL_X + 3, y: COMMUNAL_Y + 5, type: "concrete"  },
-];
+// Resource hubs are now random each game
+let resourceHubs = []; // [{x,y,type}...]
 
 let map = [];             // map[y][x] -> tile type
 let resourceTypeMap = []; // resourceTypeMap[y][x] -> "concrete"|"wood"|"steel"|null
@@ -92,7 +84,7 @@ let resourceTypeMap = []; // resourceTypeMap[y][x] -> "concrete"|"wood"|"steel"|
 let tracks = []; // { x, y, ownerId }
 
 // Track Draft config
-const STARTING_DRAFT_TRACKS = 6;
+const STARTING_DRAFT_TRACKS = 8;  // starting pre-placed tracks per player
 let draftTracksPlaced = { 1: 0, 2: 0 };
 let draftCurrentPlayerId = 1;
 
@@ -150,15 +142,84 @@ function getResourceTypeAt(x, y) {
 function isInCommunalArea(x, y) {
   const dx = Math.abs(x - COMMUNAL_X);
   const dy = Math.abs(y - COMMUNAL_Y);
-  // Cross + 3x3 mound
+  // Cross + 3x3-ish mound
   if (dx <= 1 && dy <= 1) return true;
   if ((dx === 0 && dy <= 2) || (dy === 0 && dx <= 2)) return true;
   return false;
 }
 
 // -----------------------------------------------------------------------------
-// Map Generation
+// Map Generation – Peninsula Shape + Random Resources
 // -----------------------------------------------------------------------------
+function generateResourceHubs() {
+  resourceHubs = [];
+  const resourceTypes = ["steel", "wood", "concrete"];
+
+  for (const type of resourceTypes) {
+    let attempts = 0;
+    while (attempts < 200) {
+      attempts++;
+      // Avoid very edges so the cross fits comfortably
+      const hx = 2 + Math.floor(Math.random() * (cols - 4)); // 2..cols-3
+      const hy = 2 + Math.floor(Math.random() * (rows - 4)); // 2..rows-3
+
+      if (isInCommunalArea(hx, hy)) continue;
+
+      const positions = [
+        { x: hx,     y: hy     },
+        { x: hx + 1, y: hy     },
+        { x: hx - 1, y: hy     },
+        { x: hx,     y: hy + 1 },
+        { x: hx,     y: hy - 1 },
+      ];
+
+      let ok = true;
+      for (const pos of positions) {
+        if (pos.x < 0 || pos.x >= cols || pos.y < 0 || pos.y >= rows) {
+          ok = false;
+          break;
+        }
+        if (map[pos.y][pos.x] !== TILE_LAND) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+
+      // Keep hubs a bit spread out
+      let farEnough = true;
+      for (const hub of resourceHubs) {
+        const dist = Math.abs(hub.x - hx) + Math.abs(hub.y - hy);
+        if (dist < 6) {
+          farEnough = false;
+          break;
+        }
+      }
+      if (!farEnough) continue;
+
+      resourceHubs.push({ x: hx, y: hy, type });
+      break;
+    }
+  }
+
+  // Stamp hubs onto map / resourceTypeMap
+  for (const hub of resourceHubs) {
+    const { x: hx, y: hy, type } = hub;
+    const positions = [
+      { x: hx,     y: hy     },
+      { x: hx + 1, y: hy     },
+      { x: hx - 1, y: hy     },
+      { x: hx,     y: hy + 1 },
+      { x: hx,     y: hy - 1 },
+    ];
+    for (const pos of positions) {
+      if (pos.x < 0 || pos.x >= cols || pos.y < 0 || pos.y >= rows) continue;
+      map[pos.y][pos.x] = TILE_RESOURCE;
+      resourceTypeMap[pos.y][pos.x] = type;
+    }
+  }
+}
+
 function buildMap() {
   map = [];
   resourceTypeMap = [];
@@ -175,44 +236,42 @@ function buildMap() {
     resourceTypeMap.push(rRow);
   }
 
-  // Fjord-like obstacles at edges
-  for (let x = 0; x < cols; x++) {
-    if (Math.random() < 0.4 && !isInCommunalArea(x, 0)) {
-      map[0][x] = TILE_OBSTACLE;
+  // Sculpt a rough peninsula by carving left/right coasts inward
+  for (let y = 0; y < rows; y++) {
+    let leftIndent = 0;
+    let rightIndent = 0;
+
+    if (y % 5 === 0) leftIndent = 2;
+    else if (y % 3 === 0) leftIndent = 1;
+    else if (Math.random() < 0.15) leftIndent = 1;
+
+    if (y % 7 === 0) rightIndent = 2;
+    else if (y % 4 === 0) rightIndent = 1;
+    else if (Math.random() < 0.15) rightIndent = 1;
+
+    for (let x = 0; x < leftIndent; x++) {
+      if (isInCommunalArea(x, y)) continue;
+      map[y][x] = TILE_OBSTACLE;
     }
-    if (Math.random() < 0.4 && !isInCommunalArea(x, rows - 1)) {
-      map[rows - 1][x] = TILE_OBSTACLE;
+
+    for (let x = cols - rightIndent; x < cols; x++) {
+      if (isInCommunalArea(x, y)) continue;
+      map[y][x] = TILE_OBSTACLE;
     }
   }
+
+  // A few small interior "rock" patches
   for (let y = 1; y < rows - 1; y++) {
-    if (Math.random() < 0.35 && !isInCommunalArea(0, y)) {
-      map[y][0] = TILE_OBSTACLE;
-    }
-    if (Math.random() < 0.35 && !isInCommunalArea(cols - 1, y)) {
-      map[y][cols - 1] = TILE_OBSTACLE;
-    }
-  }
-
-  // Some random inlets inward
-  const fjordCount = 4;
-  for (let i = 0; i < fjordCount; i++) {
-    const fromTop = Math.random() < 0.5;
-    if (fromTop) {
-      const x = Math.floor(Math.random() * cols);
-      const depth = 2 + Math.floor(Math.random() * 3);
-      for (let d = 0; d < depth && d < rows; d++) {
-        if (!isInCommunalArea(x, d)) map[d][x] = TILE_OBSTACLE;
-      }
-    } else {
-      const y = Math.floor(Math.random() * rows);
-      const depth = 2 + Math.floor(Math.random() * 3);
-      for (let d = 0; d < depth && d < cols; d++) {
-        if (!isInCommunalArea(d, y)) map[y][d] = TILE_OBSTACLE;
+    for (let x = 1; x < cols - 1; x++) {
+      if (isInCommunalArea(x, y)) continue;
+      if (map[y][x] !== TILE_LAND) continue;
+      if (Math.random() < 0.03) {
+        map[y][x] = TILE_OBSTACLE;
       }
     }
   }
 
-  // Stamp Home Base
+  // Stamp Home Base last so it always wins
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       if (isInCommunalArea(x, y)) {
@@ -221,26 +280,8 @@ function buildMap() {
     }
   }
 
-  // Stamp resource hubs
-  for (const hub of RESOURCE_HUBS) {
-    const hx = hub.x;
-    const hy = hub.y;
-    const type = hub.type;
-
-    const positions = [
-      { x: hx,     y: hy     },
-      { x: hx + 1, y: hy     },
-      { x: hx - 1, y: hy     },
-      { x: hx,     y: hy + 1 },
-      { x: hx,     y: hy - 1 },
-    ];
-
-    for (const pos of positions) {
-      if (pos.x < 0 || pos.x >= cols || pos.y < 0 || pos.y >= rows) continue;
-      map[pos.y][pos.x] = TILE_RESOURCE;
-      resourceTypeMap[pos.y][pos.x] = type;
-    }
-  }
+  // Now generate random resource hubs on remaining land
+  generateResourceHubs();
 }
 
 // -----------------------------------------------------------------------------
@@ -250,14 +291,14 @@ function createPlayersAndTrucks() {
   players = [
     {
       id: 1,
-      color: "#ff0044",
+      color: "#ff0044", // red company
       cash: 0,
       stockpile: { concrete: 0, wood: 0, steel: 0 },
       trackBudget: INITIAL_TRACK_BUDGET,
     },
     {
       id: 2,
-      color: "#0066ff",
+      color: "#0066ff", // blue company
       cash: 0,
       stockpile: { concrete: 0, wood: 0, steel: 0 },
       trackBudget: INITIAL_TRACK_BUDGET,
@@ -344,7 +385,6 @@ function tryPlaceTrackThisTurn() {
   if (isInCommunalArea(x, y)) return;
   if (trackAt(x, y)) return;
 
-  // Place track
   tracks.push({ x, y, ownerId: truck.ownerId });
   player.trackBudget -= 1;
   hasPlacedTrackThisTurn = true;
@@ -385,7 +425,6 @@ function handleResourceAndBase(truck) {
     }
 
     updateHUD();
-    updateSiloChips();
     autoOfferContractIfEligible(player);
   }
 }
@@ -398,7 +437,6 @@ function formatContract(contract) {
   return `Contract ${contract.id}: ${req.concrete || 0} C, ${req.wood || 0} W, ${req.steel || 0} S → $${contract.reward}`;
 }
 
-// Simple auto-offer using window.confirm
 function autoOfferContractIfEligible(player) {
   if (!currentContract) return;
   const req = currentContract.require;
@@ -439,7 +477,6 @@ function fulfillCurrentContract(player) {
   currentContract = CONTRACTS[currentContractIndex];
 
   updateHUD();
-  updateSiloChips();
   checkCashWin(player);
 }
 
@@ -673,8 +710,16 @@ function drawTile(x, y, type) {
     return;
   }
 
-  if (type === TILE_OBSTACLE) ctx.fillStyle = "#555555";
-  else ctx.fillStyle = "#aadd88";
+  if (type === TILE_OBSTACLE) {
+    const distToEdge = Math.min(x, cols - 1 - x, y, rows - 1 - y);
+    if (distToEdge <= 1 && !isInCommunalArea(x, y)) {
+      ctx.fillStyle = "#66aadd"; // water-ish
+    } else {
+      ctx.fillStyle = "#555555"; // rock
+    }
+  } else {
+    ctx.fillStyle = "#aadd88"; // land
+  }
 
   ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
   ctx.strokeStyle = "#222";
@@ -685,7 +730,6 @@ function drawTracks() {
   for (const t of tracks) {
     const owner = players.find(p => p.id === t.ownerId);
 
-    // Fallback colors during draft (players not created yet)
     let baseColor;
     if (owner) {
       baseColor = owner.color;
@@ -697,6 +741,21 @@ function drawTracks() {
 
     const cx = t.x * tileSize + tileSize / 2;
     const cy = t.y * tileSize + tileSize / 2;
+
+    // Soft glow ring (mag-lev vibe)
+    ctx.save();
+    ctx.translate(cx, cy);
+    const glowRadius = tileSize * 0.8;
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, glowRadius);
+    grad.addColorStop(0, "rgba(0,255,255,0.45)");
+    grad.addColorStop(1, "rgba(0,255,255,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Track bar
     const w = tileSize - 12;
     const h = 12;
     const r = h / 2;
@@ -716,7 +775,7 @@ function drawTracks() {
     ctx.closePath();
     ctx.fill();
 
-    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.fillRect(-w / 2 + 3, -2, w - 6, 4);
 
     ctx.restore();
@@ -744,31 +803,52 @@ function drawTrucks() {
 
     ctx.save();
     ctx.translate(cx + shakeX, cy + shakeY);
-    ctx.scale(1.05, squash);
+    ctx.scale(1, squash);
 
-    const bodyW = tileSize * 0.5;
-    const bodyH = tileSize * 0.25;
-    const cabW = tileSize * 0.25;
-    const cabH = tileSize * 0.22;
+    let sprite = null;
+    const owner = players.find(p => p.id === t.ownerId);
+    if (owner && assetsLoaded) {
+      if (owner.id === 1) sprite = assets.truckRed;
+      else if (owner.id === 2) sprite = assets.truckBlue;
+    }
 
-    ctx.fillStyle = t.color;
-    ctx.fillRect(-bodyW * 0.6, -bodyH, bodyW, bodyH);
-    ctx.fillRect(bodyW * 0.1, -cabH - 2, cabW, cabH);
+    if (sprite && sprite.complete && sprite.width > 0) {
+      const w = sprite.width;
+      const h = sprite.height;
+      const scale = tileSize / h;
+      ctx.drawImage(
+        sprite,
+        -(w * scale) / 2,
+        -(h * scale) / 2,
+        w * scale,
+        h * scale
+      );
+    } else {
+      // fallback rectangle
+      const bodyW = tileSize * 0.5;
+      const bodyH = tileSize * 0.25;
+      const cabW = tileSize * 0.25;
+      const cabH = tileSize * 0.22;
 
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(bodyW * 0.15, -cabH, cabW * 0.6, cabH * 0.5);
+      ctx.fillStyle = t.color;
+      ctx.fillRect(-bodyW * 0.6, -bodyH, bodyW, bodyH);
+      ctx.fillRect(bodyW * 0.1, -cabH - 2, cabW, cabH);
 
-    ctx.fillStyle = "#333333";
-    const wheelY = bodyH * 0.2;
-    ctx.beginPath();
-    ctx.arc(-bodyW * 0.3, wheelY, tileSize * 0.12, 0, Math.PI * 2);
-    ctx.arc(bodyW * 0.2, wheelY, tileSize * 0.12, 0, Math.PI * 2);
-    ctx.fill();
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(bodyW * 0.15, -cabH, cabW * 0.6, cabH * 0.5);
+
+      ctx.fillStyle = "#333333";
+      const wheelY = bodyH * 0.2;
+      ctx.beginPath();
+      ctx.arc(-bodyW * 0.3, wheelY, tileSize * 0.12, 0, Math.PI * 2);
+      ctx.arc(bodyW * 0.2, wheelY, tileSize * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     if (t.hasResource) {
       ctx.fillStyle = "#ffcc33";
       ctx.beginPath();
-      ctx.arc(-bodyW * 0.1, -bodyH - 4, 6, 0, Math.PI * 2);
+      ctx.arc(0, -tileSize * 0.4, 6, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -787,16 +867,65 @@ function drawTrucks() {
       t.dustTimer--;
     }
 
-    // Outline current truck
     if (gameState === GAME_STATE.PLAY && i === currentTruckIndex) {
       ctx.strokeStyle = "#ffff00";
       ctx.lineWidth = 2;
-      ctx.strokeRect(-bodyW, -bodyH - cabH - 4, bodyW * 2, bodyH + cabH + 10);
+      const box = tileSize * 0.7;
+      ctx.strokeRect(-box / 2, -box / 2, box, box);
       ctx.lineWidth = 1;
     }
 
     ctx.restore();
   }
+}
+
+// Draft overlay: "Place your tracks" + big truck over Home Base
+function drawTrackDraftOverlay() {
+  if (gameState !== GAME_STATE.TRACK_DRAFT) return;
+
+  const centerX = COMMUNAL_X * tileSize + tileSize / 2;
+  const centerY = COMMUNAL_Y * tileSize + tileSize / 2;
+
+  // Title text
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.font = "bold 28px sans-serif";
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillText("Place your tracks", centerX + 2, centerY - tileSize * 1.6 + 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText("Place your tracks", centerX, centerY - tileSize * 1.6);
+  ctx.restore();
+
+  // Big hero truck representing current drafter
+  ctx.save();
+  ctx.translate(centerX, centerY - tileSize * 0.2); // a bit above center
+
+  const ownerId = draftCurrentPlayerId;
+  let sprite = null;
+  if (assetsLoaded) {
+    sprite = ownerId === 1 ? assets.truckRed : assets.truckBlue;
+  }
+
+  if (sprite && sprite.complete && sprite.width > 0) {
+    const w = sprite.width;
+    const h = sprite.height;
+    const scale = (tileSize * 2.4) / h; // nice chunky size
+    ctx.globalAlpha = 0.96;
+    ctx.drawImage(
+      sprite,
+      -(w * scale) / 2,
+      -(h * scale) / 2,
+      w * scale,
+      h * scale
+    );
+  } else {
+    const color = ownerId === 1 ? "#ff0044" : "#0066ff";
+    ctx.fillStyle = color;
+    ctx.fillRect(-tileSize, -tileSize / 2, tileSize * 2, tileSize);
+  }
+
+  ctx.restore();
 }
 
 function drawDiceIcon(x, y, size, value) {
@@ -850,13 +979,17 @@ function draw() {
   drawHighlights();
   drawTracks();
   drawTrucks();
+
+  if (gameState === GAME_STATE.TRACK_DRAFT) {
+    drawTrackDraftOverlay();
+  }
 }
 
 // -----------------------------------------------------------------------------
 // HUD / Turn Flow
 // -----------------------------------------------------------------------------
 function updateHUD() {
-  updateSiloChips();
+  const truckIcon = "🚚";
 
   if (gameState === GAME_STATE.TRACK_DRAFT) {
     const p1Placed = draftTracksPlaced[1];
@@ -865,11 +998,20 @@ function updateHUD() {
     turnLabel.textContent = `Track Draft – Player ${draftCurrentPlayerId}, place a track`;
     const currentPlaced = draftTracksPlaced[draftCurrentPlayerId];
     diceLabel.textContent = `Track ${currentPlaced + 1} of ${STARTING_DRAFT_TRACKS}`;
-    contractLabel.textContent =
-      "Tracks help you scoot faster and block opponents. Click a green tile (not Home Base or resources). Each player has 6.";
 
-    p1Status.textContent = `P1 tracks placed: ${p1Placed}/${STARTING_DRAFT_TRACKS}`;
-    p2Status.textContent = `P2 tracks placed: ${p2Placed}/${STARTING_DRAFT_TRACKS}`;
+    if (currentContract) {
+      contractLabel.textContent = formatContract(currentContract);
+    } else {
+      contractLabel.textContent = "No active contract";
+    }
+
+    p1Status.style.color = "#ff0044";
+    p2Status.style.color = "#0066ff";
+
+    p1Status.innerHTML =
+      `${truckIcon}&nbsp;P1 tracks placed: ${p1Placed}/${STARTING_DRAFT_TRACKS}`;
+    p2Status.innerHTML =
+      `${truckIcon}&nbsp;P2 tracks placed: ${p2Placed}/${STARTING_DRAFT_TRACKS} (each player has ${STARTING_DRAFT_TRACKS})`;
 
     return;
   }
@@ -886,10 +1028,13 @@ function updateHUD() {
   const s1 = p1.stockpile;
   const s2 = p2.stockpile;
 
-  p1Status.textContent =
-    `P1: $${p1.cash} | Tracks:${p1.trackBudget} | C:${s1.concrete} W:${s1.wood} S:${s1.steel}`;
-  p2Status.textContent =
-    `P2: $${p2.cash} | Tracks:${p2.trackBudget} | C:${s2.concrete} W:${s2.wood} S:${s2.steel}`;
+  p1Status.style.color = p1.color;
+  p2Status.style.color = p2.color;
+
+  p1Status.innerHTML =
+    `${truckIcon}&nbsp;P1: $${p1.cash} | Tracks:${p1.trackBudget} | C:${s1.concrete} W:${s1.wood} S:${s1.steel}`;
+  p2Status.innerHTML =
+    `${truckIcon}&nbsp;P2: $${p2.cash} | Tracks:${p2.trackBudget} | C:${s2.concrete} W:${s2.wood} S:${s2.steel}`;
 
   if (gameState === GAME_STATE.PLAY) {
     const currentPlayer = players[currentPlayerIndex];
@@ -1100,7 +1245,6 @@ function resetGameState() {
   gameState = GAME_STATE.TRACK_DRAFT;
 
   updateHUD();
-  updateSiloChips();
   draw();
 }
 
@@ -1110,10 +1254,12 @@ function startGame(mode) {
   resetGameState();
 }
 
-// Initial setup
-buildMap();
-draw();
-updateHUD();
+// Initial setup: load art, then show board
+loadAssets(() => {
+  buildMap();
+  draw();
+  updateHUD();
+});
 
 // Expose API to HTML
 window.startGame = startGame;
