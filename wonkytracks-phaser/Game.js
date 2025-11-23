@@ -1,5 +1,6 @@
 // WonkyTracks: Season 0 – game.js
-// Track Draft + Scoots + Contracts + Peninsula edges + sprite trucks + neon tracks + draft overlay + random resources
+// Preview + track draft + scoots + contracts + peninsula edges
+// + neon tracks + sprite trucks + random 2x2 hubs + smarter CPU
 
 // -----------------------------------------------------------------------------
 // DOM & Canvas
@@ -13,32 +14,56 @@ const contractLabel = document.getElementById("contractLabel");
 const p1Status = document.getElementById("p1Status");
 const p2Status = document.getElementById("p2Status");
 const winBanner = document.getElementById("winBanner");
+const p1ConcreteCount = document.getElementById("p1ConcreteCount");
+const p1WoodCount = document.getElementById("p1WoodCount");
+const p1SteelCount = document.getElementById("p1SteelCount");
+const p2ConcreteCount = document.getElementById("p2ConcreteCount");
+const p2WoodCount = document.getElementById("p2WoodCount");
+const p2SteelCount = document.getElementById("p2SteelCount");
+
+// ---------------------------------------------------------------------------
+// HUD Helpers
+// ---------------------------------------------------------------------------
+function updateSiloChips() {
+  const setVal = (el, val) => {
+    if (el) el.textContent = val ?? 0;
+  };
+
+  const p1 = players[0];
+  const p2 = players[1];
+
+  setVal(p1ConcreteCount, p1 ? p1.stockpile.concrete : 0);
+  setVal(p1WoodCount, p1 ? p1.stockpile.wood : 0);
+  setVal(p1SteelCount, p1 ? p1.stockpile.steel : 0);
+
+  setVal(p2ConcreteCount, p2 ? p2.stockpile.concrete : 0);
+  setVal(p2WoodCount, p2 ? p2.stockpile.wood : 0);
+  setVal(p2SteelCount, p2 ? p2.stockpile.steel : 0);
+}
 
 // -----------------------------------------------------------------------------
 // Assets (truck sprites)
 // -----------------------------------------------------------------------------
-// Expecting:
-//   assets/truck_red.png   – Player 1
-//   assets/truck_blue.png  – Player 2
 const assets = {
   truckRed: new Image(),
   truckBlue: new Image(),
 };
 let assetsLoaded = false;
 
-function loadAssets(onReady) {
+function loadAssets() {
   let toLoad = 2;
 
   function done() {
     toLoad--;
     if (toLoad === 0) {
       assetsLoaded = true;
-      if (onReady) onReady();
     }
   }
 
   assets.truckRed.onload = done;
   assets.truckBlue.onload = done;
+  assets.truckRed.onerror = done;
+  assets.truckBlue.onerror = done;
 
   assets.truckRed.src = "assets/truck_red.png";
   assets.truckBlue.src = "assets/truck_blue.png";
@@ -48,13 +73,14 @@ function loadAssets(onReady) {
 // Game State
 // -----------------------------------------------------------------------------
 const GAME_STATE = {
+  PREVIEW: "PREVIEW",
   TRACK_DRAFT: "TRACK_DRAFT",
   PLAY: "PLAY",
   GAME_OVER: "GAME_OVER",
 };
 
-let gameState = GAME_STATE.TRACK_DRAFT;
-let gameMode = "2P"; // all local for now
+let gameState = GAME_STATE.PREVIEW;
+let gameMode = "2P"; // "2P" or "CPU"
 
 // -----------------------------------------------------------------------------
 // Board / Tiles
@@ -62,56 +88,47 @@ let gameMode = "2P"; // all local for now
 const TILE_LAND = 0;
 const TILE_OBSTACLE = 1;
 const TILE_RESOURCE = 2;
-const TILE_COMMUNAL_BASE = 3; // Home Base
+const TILE_COMMUNAL_BASE = 3;
 
 const tileSize = 40;
 const cols = 11;
 const rows = 26;
 
-// Home Base in the center
 const COMMUNAL_X = Math.floor(cols / 2);
 const COMMUNAL_Y = Math.floor(rows / 2);
 
-// Resource hubs are now random each game
-let resourceHubs = []; // [{x,y,type}...]
-
-let map = [];             // map[y][x] -> tile type
-let resourceTypeMap = []; // resourceTypeMap[y][x] -> "concrete"|"wood"|"steel"|null
+let map = [];
+let resourceTypeMap = []; // "concrete" | "wood" | "steel" | null
 
 // -----------------------------------------------------------------------------
-// Tracks & Scoots
+// Tracks
 // -----------------------------------------------------------------------------
 let tracks = []; // { x, y, ownerId }
 
-// Track Draft config
-const STARTING_DRAFT_TRACKS = 8;  // starting pre-placed tracks per player
+const STARTING_DRAFT_TRACKS = 8;
 let draftTracksPlaced = { 1: 0, 2: 0 };
 let draftCurrentPlayerId = 1;
 
-// Mid-game track budget
 const INITIAL_TRACK_BUDGET = 4;
 const STEEL_TRACK_BONUS = 4;
 
 // -----------------------------------------------------------------------------
 // Players, Trucks, Contracts
 // -----------------------------------------------------------------------------
-let players = []; // { id, color, cash, stockpile:{c,w,s}, trackBudget }
+let players = []; // { id, color, cash, stockpile, trackBudget }
 let trucks = [];  // { id, ownerId, x, y, color, hasResource, resourceType, shakeX, shakeY, squash, dustTimer }
 
-let currentPlayerIndex = 0; // 0 or 1
-let currentTruckIndex = 0;  // 0 or 1 (one truck per player)
+let currentPlayerIndex = 0;
+let currentTruckIndex = 0;
 
-// Dice / Turn
 let diceRoll = 0;
 let originalRoll = 0;
+let hasPlacedTrackThisTurn = false;
 let isAnimating = false;
 let gameOver = false;
 
-// Track placement per turn
-let hasPlacedTrackThisTurn = false;
-
-// Highlights for moves
-let highlights = []; // { x, y, cost, isScoot }
+// Highlights {x,y,cost,isScoot}
+let highlights = [];
 
 // Contracts
 const CONTRACTS = [
@@ -124,7 +141,7 @@ let currentContract = CONTRACTS[0];
 const WIN_CASH = 1500;
 
 // -----------------------------------------------------------------------------
-// Utility Functions
+// Utility
 // -----------------------------------------------------------------------------
 function getTile(x, y) {
   if (y < 0 || y >= rows || x < 0 || x >= cols) return TILE_OBSTACLE;
@@ -142,89 +159,17 @@ function getResourceTypeAt(x, y) {
 function isInCommunalArea(x, y) {
   const dx = Math.abs(x - COMMUNAL_X);
   const dy = Math.abs(y - COMMUNAL_Y);
-  // Cross + 3x3-ish mound
   if (dx <= 1 && dy <= 1) return true;
   if ((dx === 0 && dy <= 2) || (dy === 0 && dx <= 2)) return true;
   return false;
 }
 
 // -----------------------------------------------------------------------------
-// Map Generation – Peninsula Shape + Random Resources
+// Map Generation – peninsula + random 2×2 resource hubs
 // -----------------------------------------------------------------------------
-function generateResourceHubs() {
-  resourceHubs = [];
-  const resourceTypes = ["steel", "wood", "concrete"];
-
-  for (const type of resourceTypes) {
-    let attempts = 0;
-    while (attempts < 200) {
-      attempts++;
-      // Avoid very edges so the cross fits comfortably
-      const hx = 2 + Math.floor(Math.random() * (cols - 4)); // 2..cols-3
-      const hy = 2 + Math.floor(Math.random() * (rows - 4)); // 2..rows-3
-
-      if (isInCommunalArea(hx, hy)) continue;
-
-      const positions = [
-        { x: hx,     y: hy     },
-        { x: hx + 1, y: hy     },
-        { x: hx - 1, y: hy     },
-        { x: hx,     y: hy + 1 },
-        { x: hx,     y: hy - 1 },
-      ];
-
-      let ok = true;
-      for (const pos of positions) {
-        if (pos.x < 0 || pos.x >= cols || pos.y < 0 || pos.y >= rows) {
-          ok = false;
-          break;
-        }
-        if (map[pos.y][pos.x] !== TILE_LAND) {
-          ok = false;
-          break;
-        }
-      }
-      if (!ok) continue;
-
-      // Keep hubs a bit spread out
-      let farEnough = true;
-      for (const hub of resourceHubs) {
-        const dist = Math.abs(hub.x - hx) + Math.abs(hub.y - hy);
-        if (dist < 6) {
-          farEnough = false;
-          break;
-        }
-      }
-      if (!farEnough) continue;
-
-      resourceHubs.push({ x: hx, y: hy, type });
-      break;
-    }
-  }
-
-  // Stamp hubs onto map / resourceTypeMap
-  for (const hub of resourceHubs) {
-    const { x: hx, y: hy, type } = hub;
-    const positions = [
-      { x: hx,     y: hy     },
-      { x: hx + 1, y: hy     },
-      { x: hx - 1, y: hy     },
-      { x: hx,     y: hy + 1 },
-      { x: hx,     y: hy - 1 },
-    ];
-    for (const pos of positions) {
-      if (pos.x < 0 || pos.x >= cols || pos.y < 0 || pos.y >= rows) continue;
-      map[pos.y][pos.x] = TILE_RESOURCE;
-      resourceTypeMap[pos.y][pos.x] = type;
-    }
-  }
-}
-
-function buildMap() {
+function buildMapBase() {
   map = [];
   resourceTypeMap = [];
-
-  // Base land
   for (let y = 0; y < rows; y++) {
     const row = [];
     const rRow = [];
@@ -236,11 +181,10 @@ function buildMap() {
     resourceTypeMap.push(rRow);
   }
 
-  // Sculpt a rough peninsula by carving left/right coasts inward
+  // Peninsula-ish coasts
   for (let y = 0; y < rows; y++) {
     let leftIndent = 0;
     let rightIndent = 0;
-
     if (y % 5 === 0) leftIndent = 2;
     else if (y % 3 === 0) leftIndent = 1;
     else if (Math.random() < 0.15) leftIndent = 1;
@@ -253,25 +197,22 @@ function buildMap() {
       if (isInCommunalArea(x, y)) continue;
       map[y][x] = TILE_OBSTACLE;
     }
-
     for (let x = cols - rightIndent; x < cols; x++) {
       if (isInCommunalArea(x, y)) continue;
       map[y][x] = TILE_OBSTACLE;
     }
   }
 
-  // A few small interior "rock" patches
+  // Interior rock patches
   for (let y = 1; y < rows - 1; y++) {
     for (let x = 1; x < cols - 1; x++) {
       if (isInCommunalArea(x, y)) continue;
       if (map[y][x] !== TILE_LAND) continue;
-      if (Math.random() < 0.03) {
-        map[y][x] = TILE_OBSTACLE;
-      }
+      if (Math.random() < 0.03) map[y][x] = TILE_OBSTACLE;
     }
   }
 
-  // Stamp Home Base last so it always wins
+  // Home Base stamped last
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       if (isInCommunalArea(x, y)) {
@@ -279,8 +220,57 @@ function buildMap() {
       }
     }
   }
+}
 
-  // Now generate random resource hubs on remaining land
+function generateResourceHubs() {
+  const resourceTypes = ["steel", "wood", "concrete"];
+
+  for (const type of resourceTypes) {
+    let attempts = 0;
+    while (attempts < 200) {
+      attempts++;
+      const hx = Math.floor(Math.random() * (cols - 1));
+      const hy = Math.floor(Math.random() * (rows - 1));
+
+      const positions = [
+        { x: hx,     y: hy     },
+        { x: hx + 1, y: hy     },
+        { x: hx,     y: hy + 1 },
+        { x: hx + 1, y: hy + 1 },
+      ];
+
+      let ok = true;
+      for (const pos of positions) {
+        if (isInCommunalArea(pos.x, pos.y)) { ok = false; break; }
+        if (map[pos.y][pos.x] !== TILE_LAND) { ok = false; break; }
+      }
+      if (!ok) continue;
+
+      // Keep hubs a bit apart
+      let farEnough = true;
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          if (resourceTypeMap[y][x]) {
+            const dist = Math.abs(x - hx) + Math.abs(y - hy);
+            if (dist < 5) { farEnough = false; break; }
+          }
+        }
+        if (!farEnough) break;
+      }
+      if (!farEnough) continue;
+
+      // Stamp hub
+      for (const pos of positions) {
+        map[pos.y][pos.x] = TILE_RESOURCE;
+        resourceTypeMap[pos.y][pos.x] = type;
+      }
+      break;
+    }
+  }
+}
+
+function buildMap() {
+  buildMapBase();
   generateResourceHubs();
 }
 
@@ -291,14 +281,14 @@ function createPlayersAndTrucks() {
   players = [
     {
       id: 1,
-      color: "#ff0044", // red company
+      color: "#ff0044",
       cash: 0,
       stockpile: { concrete: 0, wood: 0, steel: 0 },
       trackBudget: INITIAL_TRACK_BUDGET,
     },
     {
       id: 2,
-      color: "#0066ff", // blue company
+      color: "#0066ff",
       cash: 0,
       stockpile: { concrete: 0, wood: 0, steel: 0 },
       trackBudget: INITIAL_TRACK_BUDGET,
@@ -344,30 +334,27 @@ function createPlayersAndTrucks() {
 function canEnterTile(truck, x, y) {
   const tile = getTile(x, y);
   if (tile === TILE_OBSTACLE) return false;
-
   const tr = trackAt(x, y);
-  if (tr && tr.ownerId !== truck.ownerId) return false; // enemy track blocks
-
+  if (tr && tr.ownerId !== truck.ownerId) return false;
   return true;
 }
 
 function movementCost(truck, fromX, fromY, toX, toY) {
   const dx = Math.abs(toX - fromX);
   const dy = Math.abs(toY - fromY);
-  if (dx + dy !== 1) return Infinity; // orthogonal only
+  if (dx + dy !== 1) return Infinity;
 
   const fromTr = trackAt(fromX, fromY);
   const toTr = trackAt(toX, toY);
   const fromTrack = !!fromTr && fromTr.ownerId === truck.ownerId;
   const toTrack = !!toTr && toTr.ownerId === truck.ownerId;
 
-  if (!fromTrack && toTrack) return 0; // onto your track
-  if (fromTrack && toTrack) return 0;  // along your track
-  if (fromTrack && !toTrack) return 1; // leaving your track
-  return 1;                            // normal
+  if (!fromTrack && toTrack) return 0;
+  if (fromTrack && toTrack) return 0;
+  if (fromTrack && !toTrack) return 1;
+  return 1;
 }
 
-// Place a mid-game track on current truck tile (1 per turn, no move cost)
 function tryPlaceTrackThisTurn() {
   if (gameState !== GAME_STATE.PLAY) return;
   if (hasPlacedTrackThisTurn) return;
@@ -380,7 +367,6 @@ function tryPlaceTrackThisTurn() {
   const y = truck.y;
   const tile = getTile(x, y);
 
-  // Cannot place on Home Base, resource, obstacle, or existing track
   if (tile !== TILE_LAND) return;
   if (isInCommunalArea(x, y)) return;
   if (trackAt(x, y)) return;
@@ -399,7 +385,7 @@ function tryPlaceTrackThisTurn() {
 function handleResourceAndBase(truck) {
   const tile = getTile(truck.x, truck.y);
 
-  // Pick up from resource tile
+  // Pick up
   if (tile === TILE_RESOURCE && !truck.hasResource) {
     const rType = getResourceTypeAt(truck.x, truck.y) || "steel";
     truck.hasResource = true;
@@ -407,7 +393,7 @@ function handleResourceAndBase(truck) {
     truck.dustTimer = 10;
   }
 
-  // Deliver at Home Base
+  // Deliver
   if (truck.hasResource && tile === TILE_COMMUNAL_BASE) {
     const player = players.find(p => p.id === truck.ownerId);
     if (!player) return;
@@ -419,12 +405,17 @@ function handleResourceAndBase(truck) {
     if (!player.stockpile[rType]) player.stockpile[rType] = 0;
     player.stockpile[rType] += 1;
 
-    // Steel bonus -> trackBudget
     if (rType === "steel") {
       player.trackBudget += STEEL_TRACK_BONUS;
     }
 
+    console.log(
+      `Delivered ${rType} to Player ${player.id}. Stockpile:`,
+      player.stockpile
+    );
+
     updateHUD();
+    updateSiloChips();
     autoOfferContractIfEligible(player);
   }
 }
@@ -443,15 +434,13 @@ function autoOfferContractIfEligible(player) {
   const stock = player.stockpile;
 
   for (const key in req) {
-    const need = req[key] || 0;
-    if ((stock[key] || 0) < need) return;
+    if ((stock[key] || 0) < (req[key] || 0)) return;
   }
 
   if (players[currentPlayerIndex].id !== player.id) return;
 
   const msg = `You can fulfill ${formatContract(currentContract)}. Fulfill now?`;
-  const yes = window.confirm(msg);
-  if (yes) {
+  if (window.confirm(msg)) {
     fulfillCurrentContract(player);
   }
 }
@@ -462,21 +451,18 @@ function fulfillCurrentContract(player) {
   const stock = player.stockpile;
 
   for (const key in req) {
-    const need = req[key] || 0;
-    if ((stock[key] || 0) < need) return;
+    if ((stock[key] || 0) < (req[key] || 0)) return;
   }
-
   for (const key in req) {
-    const need = req[key] || 0;
-    stock[key] -= need;
+    stock[key] -= req[key] || 0;
   }
 
   player.cash += currentContract.reward;
-
   currentContractIndex = (currentContractIndex + 1) % CONTRACTS.length;
   currentContract = CONTRACTS[currentContractIndex];
 
   updateHUD();
+  updateSiloChips();
   checkCashWin(player);
 }
 
@@ -503,7 +489,6 @@ function computeHighlights() {
   if (gameOver || diceRoll <= 0 || gameState !== GAME_STATE.PLAY) return;
 
   const truck = trucks[currentTruckIndex];
-
   const dirs = [
     { dx: 1, dy: 0 },
     { dx: -1, dy: 0 },
@@ -518,7 +503,7 @@ function computeHighlights() {
     highlights.push({ x, y, cost, isScoot });
   };
 
-  // Normal neighbors
+  // One-step neighbors
   for (const d of dirs) {
     const nx = truck.x + d.dx;
     const ny = truck.y + d.dy;
@@ -527,7 +512,6 @@ function computeHighlights() {
     if (cost <= diceRoll) addHighlight(nx, ny, cost, false);
   }
 
-  // Scoot exits
   const isOwnTrack = (x, y) => {
     const tr = trackAt(x, y);
     return !!tr && tr.ownerId === truck.ownerId;
@@ -601,7 +585,6 @@ function findScootPath(truck, targetX, targetY) {
 
   if (isOwnTrack(truck.x, truck.y)) addStart(truck.x, truck.y);
   for (const d of dirs) addStart(truck.x + d.dx, truck.y + d.dy);
-
   if (starts.length === 0) return null;
 
   const queue = [];
@@ -666,8 +649,7 @@ function drawTile(x, y, type) {
     const dy = Math.abs(y - COMMUNAL_Y);
     ctx.fillStyle = (dx === 0 && dy === 0) ? "#ffffff" : "#e8fff5";
     ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
-
-    ctx.strokeStyle = "rgba(0, 255, 150, 0.8)";
+    ctx.strokeStyle = "rgba(0,255,150,0.8)";
     ctx.lineWidth = 3;
     ctx.strokeRect(
       x * tileSize + 1.5,
@@ -683,11 +665,9 @@ function drawTile(x, y, type) {
 
   if (type === TILE_RESOURCE) {
     const rType = getResourceTypeAt(x, y) || "steel";
-
     if (rType === "concrete") ctx.fillStyle = "#cccccc";
     else if (rType === "wood") ctx.fillStyle = "#bb8844";
     else ctx.fillStyle = "#99aaff";
-
     ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
     ctx.strokeStyle = "#222";
     ctx.strokeRect(x * tileSize, y * tileSize, tileSize, tileSize);
@@ -701,24 +681,17 @@ function drawTile(x, y, type) {
     ctx.font = "bold 16px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(
-      label,
-      x * tileSize + tileSize / 2,
-      y * tileSize + tileSize / 2
-    );
+    ctx.fillText(label, x * tileSize + tileSize / 2, y * tileSize + tileSize / 2);
     ctx.restore();
     return;
   }
 
   if (type === TILE_OBSTACLE) {
     const distToEdge = Math.min(x, cols - 1 - x, y, rows - 1 - y);
-    if (distToEdge <= 1 && !isInCommunalArea(x, y)) {
-      ctx.fillStyle = "#66aadd"; // water-ish
-    } else {
-      ctx.fillStyle = "#555555"; // rock
-    }
+    ctx.fillStyle = (distToEdge <= 1 && !isInCommunalArea(x, y))
+      ? "#66aadd" : "#555555";
   } else {
-    ctx.fillStyle = "#aadd88"; // land
+    ctx.fillStyle = "#aadd88";
   }
 
   ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
@@ -730,6 +703,7 @@ function drawTracks() {
   for (const t of tracks) {
     const owner = players.find(p => p.id === t.ownerId);
 
+    // Color draft tracks correctly even before players[] exists
     let baseColor;
     if (owner) {
       baseColor = owner.color;
@@ -742,7 +716,7 @@ function drawTracks() {
     const cx = t.x * tileSize + tileSize / 2;
     const cy = t.y * tileSize + tileSize / 2;
 
-    // Soft glow ring (mag-lev vibe)
+    // glow
     ctx.save();
     ctx.translate(cx, cy);
     const glowRadius = tileSize * 0.8;
@@ -755,7 +729,7 @@ function drawTracks() {
     ctx.fill();
     ctx.restore();
 
-    // Track bar
+    // bar
     const w = tileSize - 12;
     const h = 12;
     const r = h / 2;
@@ -784,7 +758,7 @@ function drawTracks() {
 
 function drawHighlights() {
   ctx.save();
-  ctx.fillStyle = "rgba(255, 255, 0, 0.35)";
+  ctx.fillStyle = "rgba(255,255,0,0.35)";
   for (const h of highlights) {
     ctx.fillRect(h.x * tileSize, h.y * tileSize, tileSize, tileSize);
   }
@@ -792,39 +766,35 @@ function drawHighlights() {
 }
 
 function drawTrucks() {
-  for (let i = 0; i < trucks.length; i++) {
-    const t = trucks[i];
-    const shakeX = t.shakeX || 0;
-    const shakeY = t.shakeY || 0;
-    const squash = t.squash || 1;
+  // Draw the non-current trucks first, then the active truck on top
+  const ordered = trucks.map((t, idx) => ({ t, idx }));
+  if (gameState === GAME_STATE.PLAY && currentTruckIndex < ordered.length) {
+    const [active] = ordered.splice(currentTruckIndex, 1);
+    if (active) ordered.push(active);
+  }
 
+  for (let i = 0; i < ordered.length; i++) {
+    const t = ordered[i].t;
+    const idx = ordered[i].idx;
     const cx = t.x * tileSize + tileSize / 2;
     const cy = t.y * tileSize + tileSize / 2;
 
     ctx.save();
-    ctx.translate(cx + shakeX, cy + shakeY);
-    ctx.scale(1, squash);
+    ctx.translate(cx + (t.shakeX || 0), cy + (t.shakeY || 0));
+    ctx.scale(1, t.squash || 1);
 
     let sprite = null;
     const owner = players.find(p => p.id === t.ownerId);
     if (owner && assetsLoaded) {
-      if (owner.id === 1) sprite = assets.truckRed;
-      else if (owner.id === 2) sprite = assets.truckBlue;
+      sprite = owner.id === 1 ? assets.truckRed : assets.truckBlue;
     }
 
     if (sprite && sprite.complete && sprite.width > 0) {
       const w = sprite.width;
       const h = sprite.height;
       const scale = tileSize / h;
-      ctx.drawImage(
-        sprite,
-        -(w * scale) / 2,
-        -(h * scale) / 2,
-        w * scale,
-        h * scale
-      );
+      ctx.drawImage(sprite, -(w * scale) / 2, -(h * scale) / 2, w * scale, h * scale);
     } else {
-      // fallback rectangle
       const bodyW = tileSize * 0.5;
       const bodyH = tileSize * 0.25;
       const cabW = tileSize * 0.25;
@@ -833,11 +803,9 @@ function drawTrucks() {
       ctx.fillStyle = t.color;
       ctx.fillRect(-bodyW * 0.6, -bodyH, bodyW, bodyH);
       ctx.fillRect(bodyW * 0.1, -cabH - 2, cabW, cabH);
-
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = "#fff";
       ctx.fillRect(bodyW * 0.15, -cabH, cabW * 0.6, cabH * 0.5);
-
-      ctx.fillStyle = "#333333";
+      ctx.fillStyle = "#333";
       const wheelY = bodyH * 0.2;
       ctx.beginPath();
       ctx.arc(-bodyW * 0.3, wheelY, tileSize * 0.12, 0, Math.PI * 2);
@@ -867,7 +835,7 @@ function drawTrucks() {
       t.dustTimer--;
     }
 
-    if (gameState === GAME_STATE.PLAY && i === currentTruckIndex) {
+    if (gameState === GAME_STATE.PLAY && idx === currentTruckIndex) {
       ctx.strokeStyle = "#ffff00";
       ctx.lineWidth = 2;
       const box = tileSize * 0.7;
@@ -879,14 +847,12 @@ function drawTrucks() {
   }
 }
 
-// Draft overlay: "Place your tracks" + big truck over Home Base
+// Track draft overlay
 function drawTrackDraftOverlay() {
   if (gameState !== GAME_STATE.TRACK_DRAFT) return;
-
   const centerX = COMMUNAL_X * tileSize + tileSize / 2;
   const centerY = COMMUNAL_Y * tileSize + tileSize / 2;
 
-  // Title text
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
@@ -897,148 +863,125 @@ function drawTrackDraftOverlay() {
   ctx.fillText("Place your tracks", centerX, centerY - tileSize * 1.6);
   ctx.restore();
 
-  // Big hero truck representing current drafter
   ctx.save();
-  ctx.translate(centerX, centerY - tileSize * 0.2); // a bit above center
-
+  ctx.translate(centerX, centerY - tileSize * 0.2);
   const ownerId = draftCurrentPlayerId;
   let sprite = null;
   if (assetsLoaded) {
     sprite = ownerId === 1 ? assets.truckRed : assets.truckBlue;
   }
-
   if (sprite && sprite.complete && sprite.width > 0) {
     const w = sprite.width;
     const h = sprite.height;
-    const scale = (tileSize * 2.4) / h; // nice chunky size
+    const scale = (tileSize * 2.4) / h;
     ctx.globalAlpha = 0.96;
-    ctx.drawImage(
-      sprite,
-      -(w * scale) / 2,
-      -(h * scale) / 2,
-      w * scale,
-      h * scale
-    );
+    ctx.drawImage(sprite, -(w * scale) / 2, -(h * scale) / 2, w * scale, h * scale);
   } else {
-    const color = ownerId === 1 ? "#ff0044" : "#0066ff";
-    ctx.fillStyle = color;
+    ctx.fillStyle = ownerId === 1 ? "#ff0044" : "#0066ff";
     ctx.fillRect(-tileSize, -tileSize / 2, tileSize * 2, tileSize);
   }
-
   ctx.restore();
 }
 
-function drawDiceIcon(x, y, size, value) {
+// Preview overlay
+function drawPreviewOverlay() {
+  if (gameState !== GAME_STATE.PREVIEW) return;
+  const centerX = COMMUNAL_X * tileSize + tileSize / 2;
+  const centerY = COMMUNAL_Y * tileSize + tileSize / 2;
+
   ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  ctx.font = "bold 32px sans-serif";
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillText("WonkyTracks", centerX + 2, centerY - tileSize * 2 + 2);
   ctx.fillStyle = "#ffffff";
-  ctx.strokeStyle = "#000000";
-  ctx.lineWidth = 1.5;
-  ctx.fillRect(x, y, size, size);
-  ctx.strokeRect(x, y, size, size);
+  ctx.fillText("WonkyTracks", centerX, centerY - tileSize * 2);
 
-  ctx.fillStyle = "#000000";
-
-  const cx = x + size / 2;
-  const cy = y + size / 2;
-  const r = size * 0.08;
-
-  function dot(dx, dy) {
-    ctx.beginPath();
-    ctx.arc(cx + dx * size * 0.2, cy + dy * size * 0.2, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  switch (value) {
-    case 1:
-      dot(0, 0); break;
-    case 2:
-      dot(-1, -1); dot(1, 1); break;
-    case 3:
-      dot(-1, -1); dot(0, 0); dot(1, 1); break;
-    case 4:
-      dot(-1, -1); dot(-1, 1); dot(1, -1); dot(1, 1); break;
-    case 5:
-      dot(-1, -1); dot(-1, 1); dot(1, -1); dot(1, 1); dot(0, 0); break;
-    case 6:
-      dot(-1, -1); dot(-1, 0); dot(-1, 1);
-      dot(1, -1); dot(1, 0); dot(1, 1); break;
-  }
+  ctx.font = "18px sans-serif";
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillText("Choose a mode to begin", centerX + 2, centerY - tileSize * 1 + 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText("Choose a mode to begin", centerX, centerY - tileSize * 1);
 
   ctx.restore();
 }
 
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       drawTile(x, y, map[y][x]);
     }
   }
-
   drawHighlights();
   drawTracks();
   drawTrucks();
-
-  if (gameState === GAME_STATE.TRACK_DRAFT) {
-    drawTrackDraftOverlay();
-  }
+  if (gameState === GAME_STATE.PREVIEW) drawPreviewOverlay();
+  if (gameState === GAME_STATE.TRACK_DRAFT) drawTrackDraftOverlay();
 }
 
 // -----------------------------------------------------------------------------
 // HUD / Turn Flow
 // -----------------------------------------------------------------------------
 function updateHUD() {
+  updateSiloChips();
   const truckIcon = "🚚";
+
+  if (!turnLabel || !diceLabel) return;
+
+  if (gameState === GAME_STATE.PREVIEW) {
+    turnLabel.textContent = "Welcome to WonkyTracks";
+    diceLabel.textContent = "Pick a mode to start";
+    if (contractLabel) contractLabel.textContent = "Contracts will appear during play";
+    if (p1Status) p1Status.textContent = "";
+    if (p2Status) p2Status.textContent = "";
+    return;
+  }
 
   if (gameState === GAME_STATE.TRACK_DRAFT) {
     const p1Placed = draftTracksPlaced[1];
     const p2Placed = draftTracksPlaced[2];
-
     turnLabel.textContent = `Track Draft – Player ${draftCurrentPlayerId}, place a track`;
-    const currentPlaced = draftTracksPlaced[draftCurrentPlayerId];
-    diceLabel.textContent = `Track ${currentPlaced + 1} of ${STARTING_DRAFT_TRACKS}`;
-
-    if (currentContract) {
-      contractLabel.textContent = formatContract(currentContract);
-    } else {
-      contractLabel.textContent = "No active contract";
+    const cur = draftTracksPlaced[draftCurrentPlayerId];
+    diceLabel.textContent = `Track ${cur + 1} of ${STARTING_DRAFT_TRACKS}`;
+    if (contractLabel) {
+      contractLabel.textContent = currentContract ? formatContract(currentContract) : "No active contract";
     }
 
-    p1Status.style.color = "#ff0044";
-    p2Status.style.color = "#0066ff";
-
-    p1Status.innerHTML =
-      `${truckIcon}&nbsp;P1 tracks placed: ${p1Placed}/${STARTING_DRAFT_TRACKS}`;
-    p2Status.innerHTML =
-      `${truckIcon}&nbsp;P2 tracks placed: ${p2Placed}/${STARTING_DRAFT_TRACKS} (each player has ${STARTING_DRAFT_TRACKS})`;
-
+    if (p1Status) {
+      p1Status.style.color = "#ff0044";
+      p1Status.innerHTML = `${truckIcon}&nbsp;P1 tracks: ${p1Placed}/${STARTING_DRAFT_TRACKS}`;
+    }
+    if (p2Status) {
+      p2Status.style.color = "#0066ff";
+      p2Status.innerHTML = `${truckIcon}&nbsp;P2 tracks: ${p2Placed}/${STARTING_DRAFT_TRACKS}`;
+    }
     return;
   }
 
   const p1 = players[0];
   const p2 = players[1];
-
-  if (currentContract) {
-    contractLabel.textContent = formatContract(currentContract);
-  } else {
-    contractLabel.textContent = "No active contract";
-  }
-
   const s1 = p1.stockpile;
   const s2 = p2.stockpile;
 
-  p1Status.style.color = p1.color;
-  p2Status.style.color = p2.color;
+  if (contractLabel) {
+    contractLabel.textContent = currentContract ? formatContract(currentContract) : "No active contract";
+  }
 
-  p1Status.innerHTML =
-    `${truckIcon}&nbsp;P1: $${p1.cash} | Tracks:${p1.trackBudget} | C:${s1.concrete} W:${s1.wood} S:${s1.steel}`;
-  p2Status.innerHTML =
-    `${truckIcon}&nbsp;P2: $${p2.cash} | Tracks:${p2.trackBudget} | C:${s2.concrete} W:${s2.wood} S:${s2.steel}`;
+  if (p1Status) {
+    p1Status.style.color = p1.color;
+    p1Status.innerHTML = `${truckIcon}&nbsp;P1: $${p1.cash} | Tracks:${p1.trackBudget} | C:${s1.concrete} W:${s1.wood} S:${s1.steel}`;
+  }
+  if (p2Status) {
+    p2Status.style.color = p2.color;
+    p2Status.innerHTML = `${truckIcon}&nbsp;P2: $${p2.cash} | Tracks:${p2.trackBudget} | C:${s2.concrete} W:${s2.wood} S:${s2.steel}`;
+  }
 
   if (gameState === GAME_STATE.PLAY) {
-    const currentPlayer = players[currentPlayerIndex];
-    turnLabel.textContent = `Player ${currentPlayer.id}'s turn`;
+    const cp = players[currentPlayerIndex];
+    turnLabel.textContent = `Player ${cp.id}'s turn`;
     diceLabel.textContent = diceRoll > 0 ? `Moves: ${diceRoll}` : "Moves: -";
   } else if (gameState === GAME_STATE.GAME_OVER) {
     turnLabel.textContent = "Game Over";
@@ -1047,19 +990,18 @@ function updateHUD() {
 
 function beginTurn() {
   if (gameOver || gameState !== GAME_STATE.PLAY) return;
-
   const currentPlayer = players[currentPlayerIndex];
   diceRoll = Math.floor(Math.random() * 6) + 1;
   originalRoll = diceRoll;
   hasPlacedTrackThisTurn = false;
-
-  diceLabel.textContent = "Moves: " + diceRoll;
-  currentTruckIndex = currentPlayerIndex; // 1 truck per player
-
+  currentTruckIndex = currentPlayerIndex;
   updateHUD();
   computeHighlights();
   draw();
-  drawDiceIcon(canvas.width - 50, 10, 32, originalRoll);
+
+  if (gameMode === "CPU" && currentPlayer.id === 2) {
+    runCpuTurn();
+  }
 }
 
 function endTurn() {
@@ -1069,72 +1011,237 @@ function endTurn() {
 }
 
 // -----------------------------------------------------------------------------
-// Input: Track Draft
+// Track Draft Helpers (incl. smarter CPU)
 // -----------------------------------------------------------------------------
-function handleTrackDraftClick(x, y) {
-  if (x < 0 || x >= cols || y < 0 || y >= rows) return;
-  if (gameState !== GAME_STATE.TRACK_DRAFT) return;
-
+function placeDraftTrackAt(x, y, ownerId) {
   const tile = getTile(x, y);
-
-  if (tile !== TILE_LAND) return;
-  if (isInCommunalArea(x, y)) return;
-  if (map[y][x] === TILE_RESOURCE) return;
-  if (trackAt(x, y)) return;
-
-  const ownerId = draftCurrentPlayerId;
-  if (draftTracksPlaced[ownerId] >= STARTING_DRAFT_TRACKS) return;
+  if (tile !== TILE_LAND) return false;
+  if (isInCommunalArea(x, y)) return false;
+  if (map[y][x] === TILE_RESOURCE) return false;
+  if (trackAt(x, y)) return false;
+  if (draftTracksPlaced[ownerId] >= STARTING_DRAFT_TRACKS) return false;
 
   tracks.push({ x, y, ownerId });
   draftTracksPlaced[ownerId]++;
+  return true;
+}
 
+function checkDraftCompletionOrSwap() {
   const totalPlaced = draftTracksPlaced[1] + draftTracksPlaced[2];
   const totalNeeded = STARTING_DRAFT_TRACKS * 2;
-
   if (totalPlaced >= totalNeeded) {
     createPlayersAndTrucks();
+    gameState = GAME_STATE.PLAY;
     currentPlayerIndex = 0;
     currentTruckIndex = 0;
-    gameState = GAME_STATE.PLAY;
-
     updateHUD();
     draw();
     beginTurn();
     return;
   }
-
-  draftCurrentPlayerId = (draftCurrentPlayerId === 1) ? 2 : 1;
-
+  draftCurrentPlayerId = (draftCurrentPlayerId === 1 ? 2 : 1);
   updateHUD();
   draw();
+
+  if (gameMode === "CPU" && draftCurrentPlayerId === 2) {
+    cpuPlaceDraftTrack();
+  }
+}
+
+// smarter CPU draft: choose tiles that minimize dist(home)+dist(resource)
+function cpuPlaceDraftTrack() {
+  if (gameState !== GAME_STATE.TRACK_DRAFT) return;
+
+  let bestScore = -Infinity;
+  let bestPos = null;
+
+  // Precompute all resource tiles for distance calc
+  const resourceTiles = [];
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (map[y][x] === TILE_RESOURCE) {
+        resourceTiles.push({ x, y });
+      }
+    }
+  }
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const tile = getTile(x, y);
+      if (tile !== TILE_LAND) continue;
+      if (isInCommunalArea(x, y)) continue;
+      if (map[y][x] === TILE_RESOURCE) continue;
+      if (trackAt(x, y)) continue;
+
+      const distHome = Math.abs(x - COMMUNAL_X) + Math.abs(y - COMMUNAL_Y);
+      let distRes = Infinity;
+      for (const r of resourceTiles) {
+        const d = Math.abs(x - r.x) + Math.abs(y - r.y);
+        if (d < distRes) distRes = d;
+      }
+
+      if (distRes === Infinity) continue;
+
+      // Lower sum is better; we negate so higher is better
+      let score = -(distHome + distRes);
+
+      // Small randomness so it doesn't look too robotic
+      score += Math.random() * 0.2;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestPos = { x, y };
+      }
+    }
+  }
+
+  if (!bestPos) {
+    // Fallback random (very rare)
+    let attempts = 0;
+    while (attempts < 200 && gameState === GAME_STATE.TRACK_DRAFT && draftCurrentPlayerId === 2) {
+      attempts++;
+      const x = Math.floor(Math.random() * cols);
+      const y = Math.floor(Math.random() * rows);
+      if (placeDraftTrackAt(x, y, 2)) {
+        checkDraftCompletionOrSwap();
+        return;
+      }
+    }
+    return;
+  }
+
+  placeDraftTrackAt(bestPos.x, bestPos.y, 2);
+  checkDraftCompletionOrSwap();
 }
 
 // -----------------------------------------------------------------------------
-// Input: Movement
+// CPU Turn Logic
 // -----------------------------------------------------------------------------
+function runCpuTurn() {
+  if (gameMode !== "CPU") return;
+  if (players[currentPlayerIndex].id !== 2) return;
+  if (gameOver || gameState !== GAME_STATE.PLAY) return;
+
+  const step = () => {
+    if (gameOver || gameState !== GAME_STATE.PLAY) return;
+    if (players[currentPlayerIndex].id !== 2) return;
+
+    if (diceRoll <= 0) {
+      endTurn();
+      return;
+    }
+
+    const cpuPlayer = players[currentPlayerIndex];
+    const cpuTruck = trucks[currentTruckIndex];
+
+    // Occasionally drop a track on useful tiles
+    if (!hasPlacedTrackThisTurn && cpuPlayer.trackBudget > 0 && !trackAt(cpuTruck.x, cpuTruck.y)) {
+      if (Math.random() < 0.45) {
+        tryPlaceTrackThisTurn();
+      }
+    }
+
+    computeHighlights();
+    if (highlights.length === 0) {
+      diceRoll = 0;
+      endTurn();
+      return;
+    }
+
+    const choice = chooseCpuMove();
+    handleMoveClick(choice.x, choice.y);
+
+    if (!gameOver && gameState === GAME_STATE.PLAY && players[currentPlayerIndex].id === 2 && diceRoll > 0) {
+      setTimeout(step, isAnimating ? 260 : 160);
+    }
+  };
+
+  setTimeout(step, 350);
+}
+
+function chooseCpuMove() {
+  const cpuTruck = trucks[currentTruckIndex];
+  let best = highlights[0];
+  let bestScore = -Infinity;
+
+  // Precompute goals
+  const resourceTiles = [];
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (map[y][x] === TILE_RESOURCE) resourceTiles.push({ x, y });
+    }
+  }
+
+  for (const h of highlights) {
+    const tile = getTile(h.x, h.y);
+    let score = 0;
+
+    // Cheap moves are slightly better
+    score -= 0.1 * h.cost;
+
+    // Prefer being on own track
+    const tr = trackAt(h.x, h.y);
+    if (tr && tr.ownerId === cpuTruck.ownerId) {
+      score += 2;
+    }
+
+    // Big rewards for actually hitting goals
+    if (tile === TILE_RESOURCE && !cpuTruck.hasResource) score += 120;
+    if (tile === TILE_COMMUNAL_BASE && cpuTruck.hasResource) score += 100;
+
+    if (!cpuTruck.hasResource) {
+      // move toward any resource
+      let bestDist = Infinity;
+      for (const r of resourceTiles) {
+        const d = Math.abs(h.x - r.x) + Math.abs(h.y - r.y);
+        if (d < bestDist) bestDist = d;
+      }
+      if (bestDist < Infinity) {
+        score += (30 - bestDist);
+      }
+    } else {
+      // move toward home
+      const dHome = Math.abs(h.x - COMMUNAL_X) + Math.abs(h.y - COMMUNAL_Y);
+      score += (30 - dHome);
+    }
+
+    // small randomness so it's not totally deterministic
+    score += Math.random() * 0.5;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = h;
+    }
+  }
+  return best;
+}
+
+// -----------------------------------------------------------------------------
+// Input Handlers
+// -----------------------------------------------------------------------------
+function handleTrackDraftClick(x, y) {
+  if (gameState !== GAME_STATE.TRACK_DRAFT) return;
+  if (draftCurrentPlayerId === 2 && gameMode === "CPU") return;
+
+  if (!placeDraftTrackAt(x, y, draftCurrentPlayerId)) return;
+  checkDraftCompletionOrSwap();
+}
+
 function handleMoveClick(x, y) {
   if (gameOver || diceRoll <= 0 || gameState !== GAME_STATE.PLAY) return;
   if (isAnimating) return;
 
   const t = trucks[currentTruckIndex];
   const h = highlights.find(hh => hh.x === x && hh.y === y);
-  if (!h) return;
-  if (h.cost > diceRoll) return;
+  if (!h || h.cost > diceRoll) return;
 
   if (h.isScoot) {
     const path = findScootPath(t, h.x, h.y);
     if (!path || path.length < 2) {
-      t.x = h.x;
-      t.y = h.y;
+      t.x = h.x; t.y = h.y;
       diceRoll -= h.cost;
-      diceLabel.textContent = "Moves: " + diceRoll;
       handleResourceAndBase(t);
-      if (diceRoll <= 0) {
-        endTurn();
-      } else {
-        computeHighlights();
-        draw();
-      }
+      diceRoll <= 0 ? endTurn() : (computeHighlights(), draw());
       return;
     }
 
@@ -1143,34 +1250,21 @@ function handleMoveClick(x, y) {
 
     const animateStep = () => {
       const step = path[idx];
-
       t.shakeX = (Math.random() - 0.5) * 4;
       t.shakeY = (Math.random() - 0.5) * 2;
       t.squash = 0.9 + Math.random() * 0.2;
-
       t.x = step.x;
       t.y = step.y;
       draw();
       idx++;
-
       if (idx < path.length) {
         setTimeout(animateStep, 80);
       } else {
-        t.shakeX = 0;
-        t.shakeY = 0;
-        t.squash = 1;
-
+        t.shakeX = 0; t.shakeY = 0; t.squash = 1;
         diceRoll -= h.cost;
-        diceLabel.textContent = "Moves: " + diceRoll;
         handleResourceAndBase(t);
         isAnimating = false;
-
-        if (diceRoll <= 0) {
-          endTurn();
-        } else {
-          computeHighlights();
-          draw();
-        }
+        diceRoll <= 0 ? endTurn() : (computeHighlights(), draw());
       }
     };
 
@@ -1178,28 +1272,16 @@ function handleMoveClick(x, y) {
     return;
   }
 
-  // Normal move
+  // normal move
   t.x = h.x;
   t.y = h.y;
   diceRoll -= h.cost;
-  diceLabel.textContent = "Moves: " + diceRoll;
-
   handleResourceAndBase(t);
-
-  if (diceRoll <= 0) {
-    endTurn();
-  } else {
-    computeHighlights();
-    draw();
-  }
+  diceRoll <= 0 ? endTurn() : (computeHighlights(), draw());
 }
 
-// -----------------------------------------------------------------------------
-// Global Event Listeners
-// -----------------------------------------------------------------------------
 canvas.addEventListener("click", (e) => {
   if (isAnimating || gameOver) return;
-
   const rect = canvas.getBoundingClientRect();
   const x = Math.floor((e.clientX - rect.left) / tileSize);
   const y = Math.floor((e.clientY - rect.top) / tileSize);
@@ -1207,13 +1289,14 @@ canvas.addEventListener("click", (e) => {
   if (gameState === GAME_STATE.TRACK_DRAFT) {
     handleTrackDraftClick(x, y);
   } else if (gameState === GAME_STATE.PLAY) {
+    if (gameMode === "CPU" && players[currentPlayerIndex].id === 2) return;
     handleMoveClick(x, y);
   }
 });
 
-// Keydown: T = place track
 window.addEventListener("keydown", (e) => {
   if (gameState !== GAME_STATE.PLAY) return;
+  if (gameMode === "CPU" && players[currentPlayerIndex].id === 2) return;
   if (e.key === "t" || e.key === "T") {
     tryPlaceTrackThisTurn();
   }
@@ -1231,36 +1314,31 @@ function resetGameState() {
   winBanner.textContent = "";
   diceRoll = 0;
   originalRoll = 0;
-  diceLabel.textContent = "Moves: -";
-
-  players = [];
-  trucks = [];
-
-  currentContractIndex = 0;
-  currentContract = CONTRACTS[currentContractIndex];
-
   draftTracksPlaced[1] = 0;
   draftTracksPlaced[2] = 0;
   draftCurrentPlayerId = 1;
+  players = [];
+  trucks = [];
+  currentContractIndex = 0;
+  currentContract = CONTRACTS[currentContractIndex];
   gameState = GAME_STATE.TRACK_DRAFT;
-
   updateHUD();
+  updateSiloChips();
   draw();
 }
 
 function startGame(mode) {
-  console.log("Starting WonkyTracks Season 0. Mode requested:", mode);
-  gameMode = mode;
+  gameMode = mode === "CPU" ? "CPU" : "2P";
   resetGameState();
 }
 
-// Initial setup: load art, then show board
-loadAssets(() => {
-  buildMap();
-  draw();
-  updateHUD();
-});
+// Initial preview on load
+loadAssets();
+buildMap();
+gameState = GAME_STATE.PREVIEW;
+updateHUD();
+draw();
 
-// Expose API to HTML
+// expose
 window.startGame = startGame;
 window.tryFulfillContract = tryFulfillContract;
