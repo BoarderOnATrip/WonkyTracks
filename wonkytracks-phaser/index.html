@@ -29,13 +29,14 @@
       z-index: 10;
     }
     #menu button {
-      margin: 2px 0;
-      width: 140px;
+      margin: 3px 0;
+      width: 160px;
       cursor: pointer;
+      font-weight: bold;
     }
     #diceBox {
       position: absolute;
-      top: 140px;
+      top: 170px;
       left: 10px;
       background: white;
       padding: 6px 8px;
@@ -68,7 +69,6 @@
       box-shadow: 0 0 8px rgba(0,0,0,0.25);
       font-size: 14px;
       z-index: 10;
-        
     }
     .silo-block {
       margin-top: 6px;
@@ -81,7 +81,7 @@
       font-weight: bold;
       margin-bottom: 4px;
     }
-    .silo-title .truck-chip {
+    .truck-chip {
       display: inline-block;
       width: 18px;
       height: 12px;
@@ -90,67 +90,51 @@
       vertical-align: middle;
       box-shadow: 0 1px 2px rgba(0,0,0,0.25);
     }
-    .truck-red { background: linear-gradient(135deg, #ff5575, #d4002f); }
-    .truck-blue { background: linear-gradient(135deg, #5da2ff, #0059cc); }
-    .resource-row {
-      display: flex;
-      gap: 6px;
-    }
+    .truck-red { background: linear-gradient(135deg,#ff5575,#d4002f); }
+    .truck-blue { background: linear-gradient(135deg,#5da2ff,#0059cc); }
+    .resource-row { display:flex; gap:6px; }
     .resource-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 2px 8px;
-      border-radius: 8px;
-      font-weight: bold;
-      color: #1b1b1b;
-      background: #ffffff;
-      border: 1px solid #e4e4e4;
-      min-width: 52px;
-      justify-content: center;
+      display:inline-flex; align-items:center; gap:4px;
+      padding:2px 8px; border-radius:8px;
+      font-weight:bold; color:#1b1b1b;
+      background:#fff; border:1px solid #e4e4e4;
+      min-width:52px; justify-content:center;
     }
     .resource-chip .label {
-      display: inline-block;
-      width: 16px;
-      height: 16px;
-      border-radius: 4px;
-      color: #fff;
-      font-size: 12px;
-      line-height: 16px;
-      text-align: center;
+      display:inline-block; width:16px; height:16px; border-radius:4px;
+      color:#fff; font-size:12px; line-height:16px; text-align:center;
     }
-    .resource-chip.concrete .label { background: #888888; }
-    .resource-chip.wood .label { background: #c47a2f; }
-    .resource-chip.steel .label { background: #6f8bdc; }
+    .resource-chip.concrete .label { background:#888; }
+    .resource-chip.wood .label { background:#c47a2f; }
+    .resource-chip.steel .label { background:#6f8bdc; }
+
     #winBanner {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      padding: 20px 40px;
-      background: #ffec5c;
-      border: 4px solid #000;
-      border-radius: 20px;
-      font-size: 28px;
-      font-weight: bold;
-      display: none;
-      z-index: 20;
+      position:absolute; top:50%; left:50%;
+      transform:translate(-50%,-50%);
+      padding:20px 40px; background:#ffec5c;
+      border:4px solid #000; border-radius:20px;
+      font-size:28px; font-weight:bold;
+      display:none; z-index:20;
     }
   </style>
 </head>
 <body>
-<div id="menu">
-  <div><strong>WonkyTracks</strong></div>
-  <button onclick="startGame('2P')">2 Player Hotseat</button><br>
-  <button onclick="startGame('CPU')">Vs CPU</button>
-</div>
-<div id="diceBox">
-  <span class="label">Dice Roll</span>
-  <canvas id="diceCanvas" width="70" height="70"></canvas>
-</div>
-<div id="hud">
-    <div id="turnLabel">Mode: -</div>
-    <div id="diceLabel">Moves: -</div>
+  <div id="menu">
+    <div><strong>WonkyTracks</strong></div>
+    <button onclick="startGame('2P')">2 Player Hotseat</button><br>
+    <button onclick="startGame('CPU')">Vs CPU</button><br>
+    <hr>
+    <button onclick="startTrapTruckGame()">Trap the Truck 🧠</button>
+  </div>
+
+  <div id="diceBox">
+    <span class="label">Dice Roll</span>
+    <canvas id="diceCanvas" width="70" height="70"></canvas>
+  </div>
+
+  <div id="hud">
+    <div id="turnLabel">Mode – </div>
+    <div id="diceLabel">Moves – </div>
     <div id="contractLabel"></div>
     <div id="p1Status"></div>
     <div id="p2Status"></div>
@@ -173,10 +157,9 @@
     <button onclick="tryFulfillContract()">Fulfill Contract</button>
   </div>
 
-<div id="winBanner"></div>
-<canvas id="gameCanvas" width="440" height="1040"></canvas>
+  <div id="winBanner"></div>
+  <canvas id="gameCanvas" width="440" height="1040"></canvas>
 
-<!-- Game logic in a separate JS file -->
-<script src="game.js"></script>
+  <script src="game.js"></script>
 </body>
 </html>
