@@ -1,4 +1,6 @@
-// WonkyTracks + Trap the Truck – game.js
+// WonkyTracks: Season 0 – game.js
+// Preview + track draft + scoots + contracts + peninsula edges
+// + neon tracks + sprite trucks + random 2x2 hubs + smarter CPU
 
 // -----------------------------------------------------------------------------
 // DOM & Canvas
@@ -33,12 +35,12 @@ function updateSiloChips() {
   const p2 = players[1];
 
   setVal(p1ConcreteCount, p1 ? p1.stockpile.concrete : 0);
-  setVal(p1WoodCount,     p1 ? p1.stockpile.wood     : 0);
-  setVal(p1SteelCount,    p1 ? p1.stockpile.steel    : 0);
+  setVal(p1WoodCount, p1 ? p1.stockpile.wood : 0);
+  setVal(p1SteelCount, p1 ? p1.stockpile.steel : 0);
 
   setVal(p2ConcreteCount, p2 ? p2.stockpile.concrete : 0);
-  setVal(p2WoodCount,     p2 ? p2.stockpile.wood     : 0);
-  setVal(p2SteelCount,    p2 ? p2.stockpile.steel    : 0);
+  setVal(p2WoodCount, p2 ? p2.stockpile.wood : 0);
+  setVal(p2SteelCount, p2 ? p2.stockpile.steel : 0);
 }
 
 // -----------------------------------------------------------------------------
@@ -52,10 +54,14 @@ let assetsLoaded = false;
 
 function loadAssets() {
   let toLoad = 2;
+
   function done() {
     toLoad--;
-    if (toLoad === 0) assetsLoaded = true;
+    if (toLoad === 0) {
+      assetsLoaded = true;
+    }
   }
+
   assets.truckRed.onload = done;
   assets.truckBlue.onload = done;
   assets.truckRed.onerror = done;
@@ -66,7 +72,7 @@ function loadAssets() {
 }
 
 // -----------------------------------------------------------------------------
-// Game State (WonkyTracks)
+// Game State
 // -----------------------------------------------------------------------------
 const GAME_STATE = {
   PREVIEW: "PREVIEW",
@@ -78,12 +84,8 @@ const GAME_STATE = {
 let gameState = GAME_STATE.PREVIEW;
 let gameMode = "2P"; // "2P" or "CPU"
 
-// Global mode (main only for stability; trap mode disabled)
-const GameMode = { WONKY: "wonky" };
-let currentMode = GameMode.WONKY;
-
 // -----------------------------------------------------------------------------
-// Board / Tiles (WonkyTracks)
+// Board / Tiles
 // -----------------------------------------------------------------------------
 const TILE_LAND = 0;
 const TILE_OBSTACLE = 1;
@@ -101,7 +103,7 @@ let map = [];
 let resourceTypeMap = []; // "concrete" | "wood" | "steel" | null
 
 // -----------------------------------------------------------------------------
-// Tracks (WonkyTracks)
+// Tracks
 // -----------------------------------------------------------------------------
 let tracks = []; // { x, y, ownerId }
 
@@ -113,7 +115,7 @@ const INITIAL_TRACK_BUDGET = 4;
 const STEEL_TRACK_BONUS = 4;
 
 // -----------------------------------------------------------------------------
-// Players, Trucks, Contracts (WonkyTracks)
+// Players, Trucks, Contracts
 // -----------------------------------------------------------------------------
 let players = []; // { id, color, cash, stockpile, trackBudget }
 let trucks = [];  // { id, ownerId, x, y, color, hasResource, resourceType, shakeX, shakeY, squash, dustTimer }
@@ -141,7 +143,7 @@ let currentContract = CONTRACTS[0];
 const WIN_CASH = 1500;
 
 // -----------------------------------------------------------------------------
-// Utility (WonkyTracks)
+// Utility
 // -----------------------------------------------------------------------------
 function getTile(x, y) {
   if (y < 0 || y >= rows || x < 0 || x >= cols) return TILE_OBSTACLE;
@@ -165,7 +167,7 @@ function isInCommunalArea(x, y) {
 }
 
 // -----------------------------------------------------------------------------
-// Map Generation – peninsula + random 2×2 resource hubs (WonkyTracks)
+// Map Generation – peninsula + random 2×2 resource hubs
 // -----------------------------------------------------------------------------
 function buildMapBase() {
   map = [];
@@ -275,7 +277,7 @@ function buildMap() {
 }
 
 // -----------------------------------------------------------------------------
-// Players & Trucks (WonkyTracks)
+// Players & Trucks
 // -----------------------------------------------------------------------------
 function createPlayersAndTrucks() {
   players = [
@@ -329,7 +331,7 @@ function createPlayersAndTrucks() {
 }
 
 // -----------------------------------------------------------------------------
-// Movement & Tracks (WonkyTracks)
+// Movement & Tracks
 // -----------------------------------------------------------------------------
 function canEnterTile(truck, x, y) {
   const tile = getTile(x, y);
@@ -347,16 +349,15 @@ function movementCost(truck, fromX, fromY, toX, toY) {
   const fromTr = trackAt(fromX, fromY);
   const toTr = trackAt(toX, toY);
   const fromTrack = !!fromTr && fromTr.ownerId === truck.ownerId;
-  const toTrack   = !!toTr && toTr.ownerId === truck.ownerId;
+  const toTrack = !!toTr && toTr.ownerId === truck.ownerId;
 
   if (!fromTrack && toTrack) return 0;
-  if (fromTrack && toTrack)  return 0;
+  if (fromTrack && toTrack) return 0;
   if (fromTrack && !toTrack) return 1;
   return 1;
 }
 
 function tryPlaceTrackThisTurn() {
-  if (currentMode !== GameMode.WONKY) return;
   if (gameState !== GAME_STATE.PLAY) return;
   if (hasPlacedTrackThisTurn) return;
 
@@ -381,7 +382,7 @@ function tryPlaceTrackThisTurn() {
 }
 
 // -----------------------------------------------------------------------------
-// Resource Handling & Silos (WonkyTracks)
+// Resource Handling & Silos
 // -----------------------------------------------------------------------------
 function handleResourceAndBase(truck) {
   const tile = getTile(truck.x, truck.y);
@@ -410,6 +411,11 @@ function handleResourceAndBase(truck) {
       player.trackBudget += STEEL_TRACK_BONUS;
     }
 
+    console.log(
+      `Delivered ${rType} to Player ${player.id}. Stockpile:`,
+      player.stockpile
+    );
+
     updateHUD();
     updateSiloChips();
     autoOfferContractIfEligible(player);
@@ -417,7 +423,7 @@ function handleResourceAndBase(truck) {
 }
 
 // -----------------------------------------------------------------------------
-// Contracts (WonkyTracks)
+// Contracts
 // -----------------------------------------------------------------------------
 function formatContract(contract) {
   const req = contract.require;
@@ -463,7 +469,6 @@ function fulfillCurrentContract(player) {
 }
 
 function tryFulfillContract() {
-  if (currentMode !== GameMode.WONKY) return;
   if (gameState !== GAME_STATE.PLAY) return;
   const player = players[currentPlayerIndex];
   fulfillCurrentContract(player);
@@ -481,11 +486,10 @@ function checkCashWin(player) {
 }
 
 // -----------------------------------------------------------------------------
-// Scoot Network & Highlights (WonkyTracks)
+// Scoot Network & Highlights
 // -----------------------------------------------------------------------------
 function computeHighlights() {
   highlights = [];
-  if (currentMode !== GameMode.WONKY) return;
   if (gameOver || diceRoll <= 0 || gameState !== GAME_STATE.PLAY) return;
 
   const truck = trucks[currentTruckIndex];
@@ -641,7 +645,7 @@ function findScootPath(truck, targetX, targetY) {
 }
 
 // -----------------------------------------------------------------------------
-// Drawing (WonkyTracks)
+// Drawing
 // -----------------------------------------------------------------------------
 function drawTile(x, y, type) {
   if (type === TILE_COMMUNAL_BASE) {
@@ -703,6 +707,7 @@ function drawTracks() {
   for (const t of tracks) {
     const owner = players.find(p => p.id === t.ownerId);
 
+    // Color draft tracks correctly even before players[] exists
     let baseColor;
     if (owner) {
       baseColor = owner.color;
@@ -765,6 +770,7 @@ function drawHighlights() {
 }
 
 function drawTrucks() {
+  // Draw the non-current trucks first, then the active truck on top
   const ordered = trucks.map((t, idx) => ({ t, idx }));
   if (gameState === GAME_STATE.PLAY && currentTruckIndex < ordered.length) {
     const [active] = ordered.splice(currentTruckIndex, 1);
@@ -861,7 +867,7 @@ function drawTrackDraftOverlay() {
   if (sprite && sprite.complete && sprite.width > 0) {
     const w = sprite.width;
     const h = sprite.height;
-    const scale = (tileSize * 3.2) / h;
+    const scale = (tileSize * 3.2) / h; // bigger than standard truck
     ctx.globalAlpha = 0.96;
     ctx.drawImage(sprite, -(w * scale) / 2, -(h * scale) / 2, w * scale, h * scale);
   } else {
@@ -870,6 +876,7 @@ function drawTrackDraftOverlay() {
   }
   ctx.restore();
 
+  // Instruction text contained near Home Base center without covering tiles
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -909,59 +916,28 @@ function drawPreviewOverlay() {
 }
 
 function draw() {
-    // Always draw the Wonky board whenever this is called
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) {
-        drawTile(x, y, map[y][x]);
-      }
-    }
-  
-    drawHighlights();
-    drawTracks();
-    drawTrucks();
-  
-    if (gameState === GAME_STATE.PREVIEW) {
-      drawPreviewOverlay();
-    }
-    if (gameState === GAME_STATE.TRACK_DRAFT) {
-      drawTrackDraftOverlay();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      drawTile(x, y, map[y][x]);
     }
   }
-  
+  drawHighlights();
+  drawTracks();
+  drawTrucks();
+  if (gameState === GAME_STATE.PREVIEW) drawPreviewOverlay();
+  if (gameState === GAME_STATE.TRACK_DRAFT) drawTrackDraftOverlay();
+}
 
 // -----------------------------------------------------------------------------
-// HUD / Turn Flow (both modes)
+// HUD / Turn Flow
 // -----------------------------------------------------------------------------
 function updateHUD() {
-  // Wonky silo counts (safe even if players = [])
   updateSiloChips();
   const truckIcon = "🚚";
 
   if (!turnLabel || !diceLabel) return;
 
-  // Trap-the-Truck HUD branch
-  if (currentMode === GameMode.TRAP_TRUCK) {
-    const playerName = trapTruckTurn === 0 ? "P1 (Red)" : "P2 (Blue)";
-    turnLabel.textContent = `Trap the Truck – ${playerName}`;
-    diceLabel.textContent =
-      trapTruckDice > 0
-        ? `Roll: ${trapTruckDice}`
-        : "Rolling…";
-
-    if (contractLabel) {
-      contractLabel.textContent =
-        trapTruckGameOver
-          ? trapTruckStatusMessage
-          : "Goal: use tracks to box in your opponent.";
-    }
-    if (p1Status) p1Status.textContent = "P1 – Red Truck";
-    if (p2Status) p2Status.textContent = "P2 – Blue Truck";
-    return;
-  }
-
-  // Normal WonkyTracks HUD
   if (gameState === GAME_STATE.PREVIEW) {
     turnLabel.textContent = "Welcome to WonkyTracks";
     diceLabel.textContent = "Pick a mode to start";
@@ -1019,51 +995,50 @@ function updateHUD() {
   }
 }
 
-// Dice animation flag (used by both modes)
-let isDiceRolling = false;
-
 function beginTurn() {
-  if (currentMode !== GameMode.WONKY) return;
-  if (gameOver || gameState !== GAME_STATE.PLAY) return;
-
-  const currentPlayer = players[currentPlayerIndex];
-
-  diceRoll = 0;
-  originalRoll = 0;
-  hasPlacedTrackThisTurn = false;
-  currentTruckIndex = currentPlayerIndex;
-
-  highlights = [];
-  updateHUD();
-  drawDiceVisual(0);
-  draw();
-
-  animateDiceRoll((finalVal) => {
-    if (currentMode !== GameMode.WONKY) return;
     if (gameOver || gameState !== GAME_STATE.PLAY) return;
-
-    diceRoll = finalVal;
-    originalRoll = finalVal;
-
+  
+    const currentPlayer = players[currentPlayerIndex];
+  
+    // Reset per-turn state
+    diceRoll = 0;
+    originalRoll = 0;
+    hasPlacedTrackThisTurn = false;
+    currentTruckIndex = currentPlayerIndex;
+  
+    // Clear highlights until we know the final roll
+    highlights = [];
     updateHUD();
-    computeHighlights();
+    drawDiceVisual(0);
     draw();
-
-    if (gameMode === "CPU" && currentPlayer.id === 2) {
-      runCpuTurn();
-    }
-  });
-}
+  
+    // Animate dice, then apply the roll
+    animateDiceRoll((finalVal) => {
+      if (gameOver || gameState !== GAME_STATE.PLAY) return;
+  
+      diceRoll = finalVal;
+      originalRoll = finalVal;
+  
+      updateHUD();
+      computeHighlights();
+      draw();
+  
+      // CPU starts moving only after the dice settles
+      if (gameMode === "CPU" && currentPlayer.id === 2) {
+        runCpuTurn();
+      }
+    });
+  }
+  
 
 function endTurn() {
-  if (currentMode !== GameMode.WONKY) return;
   if (gameOver) return;
   currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
   beginTurn();
 }
 
 // -----------------------------------------------------------------------------
-// Track Draft Helpers (incl. smarter CPU – WonkyTracks)
+// Track Draft Helpers (incl. smarter CPU)
 // -----------------------------------------------------------------------------
 function placeDraftTrackAt(x, y, ownerId) {
   const tile = getTile(x, y);
@@ -1100,12 +1075,14 @@ function checkDraftCompletionOrSwap() {
   }
 }
 
+// smarter CPU draft: choose tiles that minimize dist(home)+dist(resource)
 function cpuPlaceDraftTrack() {
   if (gameState !== GAME_STATE.TRACK_DRAFT) return;
 
   let bestScore = -Infinity;
   let bestPos = null;
 
+  // Precompute all resource tiles for distance calc
   const resourceTiles = [];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
@@ -1131,8 +1108,13 @@ function cpuPlaceDraftTrack() {
       }
 
       if (distRes === Infinity) continue;
+
+      // Lower sum is better; we negate so higher is better
       let score = -(distHome + distRes);
+
+      // Small randomness so it doesn't look too robotic
       score += Math.random() * 0.2;
+
       if (score > bestScore) {
         bestScore = score;
         bestPos = { x, y };
@@ -1141,6 +1123,7 @@ function cpuPlaceDraftTrack() {
   }
 
   if (!bestPos) {
+    // Fallback random (very rare)
     let attempts = 0;
     while (attempts < 200 && gameState === GAME_STATE.TRACK_DRAFT && draftCurrentPlayerId === 2) {
       attempts++;
@@ -1159,16 +1142,14 @@ function cpuPlaceDraftTrack() {
 }
 
 // -----------------------------------------------------------------------------
-// CPU Turn Logic (WonkyTracks)
+// CPU Turn Logic
 // -----------------------------------------------------------------------------
 function runCpuTurn() {
-  if (currentMode !== GameMode.WONKY) return;
   if (gameMode !== "CPU") return;
   if (players[currentPlayerIndex].id !== 2) return;
   if (gameOver || gameState !== GAME_STATE.PLAY) return;
 
   const step = () => {
-    if (currentMode !== GameMode.WONKY) return;
     if (gameOver || gameState !== GAME_STATE.PLAY) return;
     if (players[currentPlayerIndex].id !== 2) return;
 
@@ -1180,6 +1161,7 @@ function runCpuTurn() {
     const cpuPlayer = players[currentPlayerIndex];
     const cpuTruck = trucks[currentTruckIndex];
 
+    // Occasionally drop a track on useful tiles
     if (!hasPlacedTrackThisTurn && cpuPlayer.trackBudget > 0 && !trackAt(cpuTruck.x, cpuTruck.y)) {
       if (Math.random() < 0.45) {
         tryPlaceTrackThisTurn();
@@ -1209,16 +1191,18 @@ function chooseCpuMove() {
   let best = highlights[0];
   let bestScore = -Infinity;
 
+  // Contract-driven priorities
   const contract = currentContract;
   const cpuPlayer = players[currentPlayerIndex];
   const deficits = { concrete: 0, wood: 0, steel: 0 };
   if (contract && cpuPlayer) {
     const req = contract.require;
     deficits.concrete = Math.max((req.concrete || 0) - (cpuPlayer.stockpile.concrete || 0), 0);
-    deficits.wood     = Math.max((req.wood     || 0) - (cpuPlayer.stockpile.wood     || 0), 0);
-    deficits.steel    = Math.max((req.steel    || 0) - (cpuPlayer.stockpile.steel    || 0), 0);
+    deficits.wood = Math.max((req.wood || 0) - (cpuPlayer.stockpile.wood || 0), 0);
+    deficits.steel = Math.max((req.steel || 0) - (cpuPlayer.stockpile.steel || 0), 0);
   }
 
+  // Precompute goals
   const resourceTiles = [];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
@@ -1230,31 +1214,43 @@ function chooseCpuMove() {
     const tile = getTile(h.x, h.y);
     let score = 0;
 
+    // Cheap moves are slightly better
     score -= 0.1 * h.cost;
 
+    // Prefer being on own track
     const tr = trackAt(h.x, h.y);
-    if (tr && tr.ownerId === cpuTruck.ownerId) score += 2;
+    if (tr && tr.ownerId === cpuTruck.ownerId) {
+      score += 2;
+    }
 
+    // Big rewards for actually hitting goals
     if (tile === TILE_RESOURCE && !cpuTruck.hasResource) score += 120;
     if (tile === TILE_COMMUNAL_BASE && cpuTruck.hasResource) score += 100;
 
     if (!cpuTruck.hasResource) {
+      // Prefer resources that satisfy biggest deficit
       const rType = getResourceTypeAt(h.x, h.y);
       if (tile === TILE_RESOURCE && rType) {
         const needWeight = deficits[rType] > 0 ? 50 * deficits[rType] : 8;
         score += needWeight;
       }
+
+      // move toward any resource
       let bestDist = Infinity;
       for (const r of resourceTiles) {
         const d = Math.abs(h.x - r.x) + Math.abs(h.y - r.y);
         if (d < bestDist) bestDist = d;
       }
-      if (bestDist < Infinity) score += (30 - bestDist);
+      if (bestDist < Infinity) {
+        score += (30 - bestDist);
+      }
     } else {
+      // move toward home
       const dHome = Math.abs(h.x - COMMUNAL_X) + Math.abs(h.y - COMMUNAL_Y);
       score += (30 - dHome);
     }
 
+    // small randomness so it's not totally deterministic
     score += Math.random() * 0.5;
 
     if (score > bestScore) {
@@ -1266,11 +1262,12 @@ function chooseCpuMove() {
 }
 
 // -----------------------------------------------------------------------------
-// Input Handlers – shared canvas
+// Input Handlers
 // -----------------------------------------------------------------------------
 function handleTrackDraftClick(x, y) {
   if (gameState !== GAME_STATE.TRACK_DRAFT) return;
   if (draftCurrentPlayerId === 2 && gameMode === "CPU") return;
+
   if (!placeDraftTrackAt(x, y, draftCurrentPlayerId)) return;
   checkDraftCompletionOrSwap();
 }
@@ -1320,6 +1317,7 @@ function handleMoveClick(x, y) {
     return;
   }
 
+  // normal move
   t.x = h.x;
   t.y = h.y;
   diceRoll -= h.cost;
@@ -1330,12 +1328,37 @@ function handleMoveClick(x, y) {
 canvas.addEventListener("click", (e) => {
   if (isAnimating || gameOver || isDiceRolling) return;
 
-  const rect = canvas.getBoundingClientRect();
-  const cx = e.clientX - rect.left;
-  const cy = e.clientY - rect.top;
+  if (currentMode === GameMode.TRAP_TRUCK) {
+    const playableRows = TRAP_TRUCK_BOARD_MASK.length;
+    const playableCols = TRAP_TRUCK_BOARD_MASK[0].length;
+    const margin = 40;
+    const availableW = canvas.width - margin * 2;
+    const availableH = canvas.height - margin * 2;
+    const size = Math.floor(Math.min(
+      availableW / playableCols,
+      availableH / playableRows
+    ));
+    const boardW = playableCols * size;
+    const boardH = playableRows * size;
+    const offsetX = (canvas.width - boardW) / 2;
+    const offsetY = (canvas.height - boardH) / 2;
 
-  const x = Math.floor(cx / tileSize);
-  const y = Math.floor(cy / tileSize);
+    const rect = canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+
+    const c = Math.floor((cx - offsetX) / size);
+    const r = Math.floor((cy - offsetY) / size);
+    if (r < 0 || c < 0 || r >= playableRows || c >= playableCols) return;
+    if (!TRAP_TRUCK_BOARD_MASK[r][c]) return;
+    tryTrapTruckMove(r, c);
+    return;
+  }
+
+  // Normal WonkyTracks handling
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor((e.clientX - rect.left) / tileSize);
+  const y = Math.floor((e.clientY - rect.top) / tileSize);
 
   if (gameState === GAME_STATE.TRACK_DRAFT) {
     handleTrackDraftClick(x, y);
@@ -1344,29 +1367,233 @@ canvas.addEventListener("click", (e) => {
     handleMoveClick(x, y);
   }
 });
-
-window.addEventListener("keydown", (e) => {
-  if (currentMode !== GameMode.WONKY) return;
-  if (gameState !== GAME_STATE.PLAY) return;
-  if (gameMode === "CPU" && players[currentPlayerIndex].id === 2) return;
-  if (e.key === "t" || e.key === "T") {
-    tryPlaceTrackThisTurn();
+window.addEventListener("resize", () => {
+  if (currentMode === GameMode.TRAP_TRUCK) {
+    setCanvasSizeForTrap();
+    drawTrapTruck();
   }
 });
 
 // -----------------------------------------------------------------------------
-// Dice animation (shared) + small dice visual
+// Game Lifecycle
 // -----------------------------------------------------------------------------
+function resetGameState() {
+  buildMap();
+  tracks = [];
+  gameOver = false;
+  isAnimating = false;
+  winBanner.style.display = "none";
+  winBanner.textContent = "";
+  diceRoll = 0;
+  originalRoll = 0;
+  draftTracksPlaced[1] = 0;
+  draftTracksPlaced[2] = 0;
+  draftCurrentPlayerId = 1;
+  players = [];
+  trucks = [];
+  highlights = [];
+  currentContractIndex = 0;
+  currentContract = CONTRACTS[currentContractIndex];
+  gameState = GAME_STATE.TRACK_DRAFT;
+  updateHUD();
+  updateSiloChips();
+  drawDiceVisual(0);
+  draw();
+}
+
+function startGame(mode) {
+  currentMode = GameMode.WONKY;
+  canvas.width = 440;
+  canvas.height = 1040;
+  document.getElementById("menu").style.display = "block";
+  gameMode = mode === "CPU" ? "CPU" : "2P";
+  resetGameState();
+}
+// -----------------------------------------------------------------------------
+// Trap the Truck mini-mode integration
+// -----------------------------------------------------------------------------
+const GameMode = { WONKY: "wonky", TRAP_TRUCK: "trap-truck" };
+let currentMode = GameMode.WONKY;
+
+const TRAP_TRUCK_BOARD_MASK = [
+  [0,0,0,1,0],
+  [0,0,1,1,0],
+  [0,1,1,1,0],
+  [1,1,1,1,1],
+  [0,1,1,1,0],
+  [0,0,1,1,0],
+  [0,0,0,1,0]
+];
+
+const TRAP_TRUCK_STARTS = [
+  { owner: 0, r: 1, c: 3 }, // Red
+  { owner: 1, r: 5, c: 2 }  // Blue
+];
+
+let trapTruckTracks = [];
+let trapTruckTrucks = [];
+let trapTruckDice = 0;
+let trapTruckTurn = 0;
+let trapTruckGameOver = false;
+
+function setCanvasSizeForTrap() {
+  // Fit canvas to viewport while keeping some margin
+  const margin = 40;
+  canvas.width = Math.max(360, Math.min(window.innerWidth - margin * 2, 640));
+  canvas.height = Math.max(360, Math.min(window.innerHeight - margin * 2, 820));
+}
+
+function startTrapTruckGame() {
+  // Trap the Truck is currently disabled; keep players in the main mode
+  alert("Trap the Truck is coming soon. Please use the main WonkyTracks modes for now.");
+  currentMode = GameMode.WONKY;
+  canvas.width = 440;
+  canvas.height = 1040;
+  document.getElementById("menu").style.display = "block";
+  resetGameState();
+}
+
+function resetTrapTruck() {
+  trapTruckTracks = TRAP_TRUCK_BOARD_MASK.map(r => r.map(() => null));
+  trapTruckTrucks = TRAP_TRUCK_STARTS.map(t => ({ ...t }));
+  trapTruckTurn = 0;
+  trapTruckDice = 0;
+  trapTruckGameOver = false;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawTrapTruck();
+}
+function rollTrapTruckDice() {
+    trapTruckDice = 0;
+    drawTrapTruck();
+  
+    animateDiceRoll((finalVal) => {
+      trapTruckDice = finalVal;
+      drawTrapTruck();
+      setStatusMessage(
+        `Player ${trapTruckTurn + 1} rolled ${trapTruckDice}. Move ${trapTruckDice} steps.`
+      );
+    });
+  }
+  
+// Basic status relay for trap mode so we avoid console errors
+function setStatusMessage(msg) {
+  if (contractLabel) {
+    contractLabel.textContent = msg;
+  } else {
+    console.log(msg);
+  }
+}
+
+// Placeholder movement handler to avoid crashes; expand with real rules later
+function tryTrapTruckMove() {
+  setStatusMessage("Trap-the-Truck move handling not implemented yet.");
+}
+  
+function drawTrapTruck() {
+    const playableRows = TRAP_TRUCK_BOARD_MASK.length;
+    const playableCols = TRAP_TRUCK_BOARD_MASK[0].length;
+  
+    // Auto size tile so the board fits both height and width
+    const margin = 40;
+    const availableW = canvas.width - margin * 2;
+    const availableH = canvas.height - margin * 2;
+    const size = Math.floor(Math.min(
+      availableW / playableCols,
+      availableH / playableRows
+    ));
+  
+    // Center the board dynamically
+    const boardW = playableCols * size;
+    const boardH = playableRows * size;
+    const offsetX = (canvas.width - boardW) / 2;
+    const offsetY = (canvas.height - boardH) / 2;
+  
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+    // Draw tiles
+    for (let r = 0; r < playableRows; r++) {
+      for (let c = 0; c < playableCols; c++) {
+        if (!TRAP_TRUCK_BOARD_MASK[r][c]) continue;
+        const x = offsetX + c * size;
+        const y = offsetY + r * size;
+  
+        ctx.fillStyle = "#22aa55";
+        ctx.fillRect(x, y, size, size);
+        ctx.strokeStyle = "#111";
+        ctx.strokeRect(x, y, size, size);
+  
+        const trackOwner = trapTruckTracks[r][c];
+        if (trackOwner !== null) {
+          ctx.fillStyle = trackOwner === 0 ? "#ff5575" : "#5da2ff";
+          ctx.fillRect(x + size * 0.15, y + size * 0.15, size * 0.7, size * 0.7);
+        }
+      }
+    }
+  
+    // Draw trucks
+    for (let i = 0; i < trapTruckTrucks.length; i++) {
+      const t = trapTruckTrucks[i];
+      const x = offsetX + t.c * size + size / 2;
+      const y = offsetY + t.r * size + size / 2;
+  
+      ctx.beginPath();
+      ctx.arc(x, y, size * 0.35, 0, Math.PI * 2);
+      ctx.fillStyle = i === 0 ? "#ff3344" : "#3344ff";
+      ctx.fill();
+      ctx.strokeStyle = "#000";
+      ctx.stroke();
+    }
+  
+    // Title
+    ctx.fillStyle = "#000";
+    ctx.font = "18px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(
+      `Trap the Truck — P${trapTruckTurn + 1} roll: ${trapTruckDice}`,
+      canvas.width / 2,
+      offsetY - 15
+    );
+  }
+  
+
+// Initial preview on load
+loadAssets();
+buildMap();
+gameState = GAME_STATE.PREVIEW;
+updateHUD();
+draw();
+drawDiceVisual(0);
+
+// expose
+window.startGame = startGame;
+window.tryFulfillContract = tryFulfillContract;
+window.addEventListener("resize", () => {
+    if (currentMode === GameMode.TRAP_TRUCK) {
+      drawTrapTruck();
+    }
+  });
+  
+  // -----------------------------------------------------------------------------
+// Dice animation (shared by WonkyTracks & Trap the Truck)
+// -----------------------------------------------------------------------------
+let isDiceRolling = false;
+
+/**
+ * Animate the dice canvas with a quick roll, then call onDone(finalValue).
+ * finalValue is a number 1–6.
+ */
 function animateDiceRoll(onDone) {
   if (!diceCtx) {
+    // Fallback: no dice canvas, just pick a value
     const v = 1 + Math.floor(Math.random() * 6);
     if (onDone) onDone(v);
     return;
   }
 
   isDiceRolling = true;
-  const frames = 12;
-  const delay = 60;
+  const frames = 12;       // how many random faces
+  const delay = 60;        // ms between faces
+
   let current = 0;
 
   const tick = () => {
@@ -1386,6 +1613,7 @@ function animateDiceRoll(onDone) {
   tick();
 }
 
+// Small dice visual (separate canvas)
 function drawDiceVisual(value) {
   if (!diceCtx) return;
   diceCtx.clearRect(0, 0, diceCanvas.width, diceCanvas.height);
@@ -1414,352 +1642,9 @@ function drawDiceVisual(value) {
     case 5: dot(-offset, -offset); dot(-offset, offset); dot(offset, -offset); dot(offset, offset); dot(0, 0); break;
     case 6: dot(-offset, -offset); dot(-offset, 0); dot(-offset, offset); dot(offset, -offset); dot(offset, 0); dot(offset, offset); break;
     default:
+      // Show a dash if no roll yet
       diceCtx.fillStyle = "#444";
       diceCtx.fillRect(cx - 12, cy - 2, 24, 4);
       break;
   }
 }
-
-// -----------------------------------------------------------------------------
-// Game Lifecycle (WonkyTracks main mode)
-// -----------------------------------------------------------------------------
-function resetGameState() {
-  currentMode = GameMode.WONKY;
-  canvas.width = 440;
-  canvas.height = 1040;
-
-  buildMap();
-  tracks = [];
-  gameOver = false;
-  isAnimating = false;
-  winBanner.style.display = "none";
-  winBanner.textContent = "";
-  diceRoll = 0;
-  originalRoll = 0;
-  draftTracksPlaced[1] = 0;
-  draftTracksPlaced[2] = 0;
-  draftCurrentPlayerId = 1;
-  players = [];
-  trucks = [];
-  highlights = [];
-  currentContractIndex = 0;
-  currentContract = CONTRACTS[currentContractIndex];
-  gameState = GAME_STATE.TRACK_DRAFT;
-  updateHUD();
-  updateSiloChips();
-  drawDiceVisual(0);
-  draw();
-}
-
-function startGame(mode) {
-    currentMode = GameMode.WONKY;        // make sure we’re in main mode
-    gameMode = mode === "CPU" ? "CPU" : "2P";
-    resetGameState();                    // builds map + draws it
-  }
-  
-
-// -----------------------------------------------------------------------------
-// Trap the Truck mini-mode integration (clean rewrite)
-// -----------------------------------------------------------------------------
-
-// Two high-level modes sharing the same canvas
-const GameMode = { WONKY: "wonky", TRAP_TRUCK: "trap-truck" };
-let currentMode = GameMode.WONKY;
-
-// --- Board definition --------------------------------------------------------
-// 7x5 cross-shaped board, matching your mockup.
-const TRAP_TRUCK_ROWS = 7;
-const TRAP_TRUCK_COLS = 5;
-
-// 1 = playable tile, 0 = empty
-const TRAP_TRUCK_BOARD_MASK = [
-  [0, 0, 0, 1, 0],
-  [0, 0, 1, 1, 0],
-  [0, 1, 1, 1, 0],
-  [1, 1, 1, 1, 1],
-  [0, 1, 1, 1, 0],
-  [0, 0, 1, 1, 0],
-  [0, 0, 0, 1, 0],
-];
-
-// Match Wonky players: 1 = Red, 2 = Blue
-const TRAP_TRUCK_STARTS = [
-  { ownerId: 1, r: 1, c: 3 }, // P1 red
-  { ownerId: 2, r: 5, c: 2 }, // P2 blue
-];
-
-// --- Trap-the-Truck state ----------------------------------------------------
-let trapTruckTracks = [];       // 2D [r][c] => null | 1 | 2
-let trapTruckTrucks = [];       // [{ ownerId, r, c }]
-let trapTruckTurn = 0;          // index into trapTruckTrucks (0 or 1)
-let trapTruckDice = 0;          // 0 = not rolled yet
-let trapTruckHighlights = [];   // [{ r, c }]
-let trapTruckGameOver = false;
-
-// Convenience for movement
-const TRAP_DIRS = [
-  { dr: -1, dc: 0 },
-  { dr: 1,  dc: 0 },
-  { dr: 0,  dc: -1 },
-  { dr: 0,  dc: 1 },
-];
-
-function trapInBounds(r, c) {
-  return (
-    r >= 0 && r < TRAP_TRUCK_ROWS &&
-    c >= 0 && c < TRAP_TRUCK_COLS &&
-    TRAP_TRUCK_BOARD_MASK[r][c] === 1
-  );
-}
-
-function trapCanEnter(ownerId, r, c) {
-  if (!trapInBounds(r, c)) return false;
-
-  // Opponent track blocks
-  const trackOwner = trapTruckTracks[r][c];
-  if (trackOwner && trackOwner !== ownerId) return false;
-
-  // Opponent truck blocks
-  for (const t of trapTruckTrucks) {
-    if (t.r === r && t.c === c && t.ownerId !== ownerId) return false;
-  }
-
-  // Own tracks & own truck are passable (treated like track)
-  return true;
-}
-
-function setCanvasSizeForTrap() {
-  // Fit nicely in viewport, but keep a reasonable minimum size
-  const margin = 80;
-  const w = Math.max(360, Math.min(window.innerWidth - margin, 640));
-  const h = Math.max(480, Math.min(window.innerHeight - margin, 900));
-  canvas.width = w;
-  canvas.height = h;
-}
-
-// Update HUD text for Trap-the-Truck
-function updateTrapHud(extraMessage) {
-  if (!turnLabel || !diceLabel || !contractLabel) return;
-
-  const playerNum = trapTruckTurn + 1;
-  const colorName = playerNum === 1 ? "Red" : "Blue";
-
-  turnLabel.textContent = `Trap the Truck — P${playerNum} (${colorName})`;
-  diceLabel.textContent = trapTruckDice > 0 ? `Roll: ${trapTruckDice}` : "Roll: -";
-
-  if (extraMessage) {
-    contractLabel.textContent = extraMessage;
-  } else {
-    contractLabel.textContent =
-      "Goal: use tracks to box in your opponent.\n" +
-      "P1 – Red truck, P2 – Blue truck.";
-  }
-}
-
-// Initialise Trap-the-Truck state
-function resetTrapTruck() {
-  // Tracks
-  trapTruckTracks = [];
-  for (let r = 0; r < TRAP_TRUCK_ROWS; r++) {
-    const row = [];
-    for (let c = 0; c < TRAP_TRUCK_COLS; c++) row.push(null);
-    trapTruckTracks.push(row);
-  }
-
-  // Trucks
-  trapTruckTrucks = TRAP_TRUCK_STARTS.map(s => ({
-    ownerId: s.ownerId,
-    r: s.r,
-    c: s.c,
-  }));
-
-  trapTruckTurn = 0;
-  trapTruckDice = 0;
-  trapTruckGameOver = false;
-  trapTruckHighlights = [];
-
-  updateTrapHud();
-  drawTrapTruck();
-  drawDiceVisual(0);
-}
-
-function startTrapTruckGame() {
-  alert("Trap the Truck is disabled; please use the main WonkyTracks modes.");
-  startGame("2P");
-}
-
-// Trap mode disabled; keep stub to avoid errors
-function rollTrapTruckDice() { return; }
-
-// Compute destinations that are exactly trapTruckDice steps away
-function trapComputeHighlights() {
-  trapTruckHighlights = [];
-  if (trapTruckGameOver || trapTruckDice <= 0) return;
-
-  const t = trapTruckTrucks[trapTruckTurn];
-  const ownerId = t.ownerId;
-
-  // BFS on the mask, storing distance in steps
-  const dist = Array.from({ length: TRAP_TRUCK_ROWS }, () =>
-    Array(TRAP_TRUCK_COLS).fill(-1)
-  );
-
-  const queue = [];
-  dist[t.r][t.c] = 0;
-  queue.push({ r: t.r, c: t.c });
-
-  while (queue.length) {
-    const { r, c } = queue.shift();
-    const d = dist[r][c];
-
-    for (const { dr, dc } of TRAP_DIRS) {
-      const nr = r + dr;
-      const nc = c + dc;
-      if (!trapInBounds(nr, nc)) continue;
-      if (!trapCanEnter(ownerId, nr, nc)) continue;
-
-      const nd = d + 1;
-      if (nd > trapTruckDice) continue;
-      if (dist[nr][nc] !== -1 && dist[nr][nc] <= nd) continue;
-
-      dist[nr][nc] = nd;
-      queue.push({ r: nr, c: nc });
-    }
-  }
-
-  // Only allow tiles at *exactly* distance N (the roll)
-  for (let r = 0; r < TRAP_TRUCK_ROWS; r++) {
-    for (let c = 0; c < TRAP_TRUCK_COLS; c++) {
-      if (dist[r][c] === trapTruckDice && !(r === t.r && c === t.c)) {
-        trapTruckHighlights.push({ r, c });
-      }
-    }
-  }
-}
-
-// Handle a click on a Trap-the-Truck tile (r,c) in board coordinates
-function tryTrapTruckMove(r, c) {
-  if (trapTruckGameOver || isDiceRolling) return;
-  if (currentMode !== GameMode.TRAP_TRUCK) return;
-  if (trapTruckDice <= 0) return;
-
-  const h = trapTruckHighlights.find(hh => hh.r === r && hh.c === c);
-  if (!h) return; // not a legal destination
-
-  const t = trapTruckTrucks[trapTruckTurn];
-
-  // Move truck
-  t.r = h.r;
-  t.c = h.c;
-
-  // Drop track on landing tile if empty
-  if (!trapTruckTracks[h.r][h.c]) {
-    trapTruckTracks[h.r][h.c] = t.ownerId;
-  }
-
-  // Clear current roll & highlights
-  trapTruckDice = 0;
-  trapTruckHighlights = [];
-  drawTrapTruck();
-
-  // Next player's turn
-  trapTruckTurn = (trapTruckTurn + 1) % trapTruckTrucks.length;
-  rollTrapTruckDice();
-}
-
-// Draw the Trap-the-Truck board
-function drawTrapTruck() {
-  const playableRows = TRAP_TRUCK_ROWS;
-  const playableCols = TRAP_TRUCK_COLS;
-
-  const margin = 40;
-  const availableW = canvas.width - margin * 2;
-  const availableH = canvas.height - margin * 2;
-  const size = Math.floor(
-    Math.min(availableW / playableCols, availableH / playableRows)
-  );
-
-  const boardW = playableCols * size;
-  const boardH = playableRows * size;
-  const offsetX = (canvas.width - boardW) / 2;
-  const offsetY = (canvas.height - boardH) / 2;
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Tiles & tracks
-  for (let r = 0; r < playableRows; r++) {
-    for (let c = 0; c < playableCols; c++) {
-      if (!TRAP_TRUCK_BOARD_MASK[r][c]) continue;
-
-      const x = offsetX + c * size;
-      const y = offsetY + r * size;
-
-      // base tile
-      ctx.fillStyle = "#22aa55";
-      ctx.fillRect(x, y, size, size);
-      ctx.strokeStyle = "#111";
-      ctx.strokeRect(x, y, size, size);
-
-      // track, if any
-      const trackOwner = trapTruckTracks[r][c];
-      if (trackOwner) {
-        ctx.fillStyle = trackOwner === 1 ? "#ff5575" : "#5da2ff";
-        ctx.fillRect(
-          x + size * 0.18,
-          y + size * 0.18,
-          size * 0.64,
-          size * 0.64
-        );
-      }
-    }
-  }
-
-  // Highlights (legal landing tiles)
-  if (trapTruckDice > 0 && !trapTruckGameOver) {
-    ctx.fillStyle = "rgba(255,255,0,0.35)";
-    for (const h of trapTruckHighlights) {
-      const x = offsetX + h.c * size;
-      const y = offsetY + h.r * size;
-      ctx.fillRect(x, y, size, size);
-    }
-  }
-
-  // Trucks
-  for (const t of trapTruckTrucks) {
-    const x = offsetX + t.c * size + size / 2;
-    const y = offsetY + t.r * size + size / 2;
-
-    ctx.beginPath();
-    ctx.arc(x, y, size * 0.35, 0, Math.PI * 2);
-    ctx.fillStyle = t.ownerId === 1 ? "#ff3344" : "#3344ff";
-    ctx.fill();
-    ctx.strokeStyle = "#000";
-    ctx.stroke();
-  }
-
-  // Title
-  ctx.fillStyle = "#000";
-  ctx.font = "18px sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(
-    `Trap the Truck — P${trapTruckTurn + 1} roll: ${trapTruckDice || "-"}`,
-    canvas.width / 2,
-    offsetY - 15
-  );
-}
-
-// Trap mode hooks removed for stability
-
-// -----------------------------------------------------------------------------
-// Initial preview
-// -----------------------------------------------------------------------------
-loadAssets();
-buildMap();
-gameState = GAME_STATE.PREVIEW;
-currentMode = GameMode.WONKY;
-updateHUD();
-draw();
-drawDiceVisual(0);
-
-window.startGame = startGame;
-window.tryFulfillContract = tryFulfillContract;
