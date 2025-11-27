@@ -1444,13 +1444,10 @@ function setCanvasSizeForTrap() {
 }
 
 function startTrapTruckGame() {
-  // Trap the Truck is currently disabled; keep players in the main mode
-  alert("Trap the Truck is coming soon. Please use the main WonkyTracks modes for now.");
-  currentMode = GameMode.WONKY;
-  canvas.width = 440;
-  canvas.height = 1040;
-  document.getElementById("menu").style.display = "block";
-  resetGameState();
+  currentMode = GameMode.TRAP_TRUCK;
+  setCanvasSizeForTrap();
+  document.getElementById("menu").style.display = "none";
+  resetTrapTruck();
 }
 
 function resetTrapTruck() {
